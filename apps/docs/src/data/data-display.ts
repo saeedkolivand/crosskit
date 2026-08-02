@@ -173,4 +173,93 @@ export const dataDisplay: ComponentDoc[] = [
 </ck-table>`,
     },
   },
+  {
+    slug: "watermark",
+    name: "Watermark",
+    group: "Data display",
+    scope: "watermark",
+    isNew: true,
+    summary:
+      "A repeating mark drawn over its children, on a canvas raster tiled across the region. The overlay is created and repaired by `@crosskit-ui/core` rather than rendered by the framework, so deleting it in the inspector, hiding it from a stylesheet or stripping its attributes all bring it straight back. That resists accidental and casual removal — it is explicitly not a security boundary, since the mark lives in the page it is protecting. New in v2, React first.",
+    props: [
+      {
+        name: "content",
+        reactFirst: true,
+        type: "string | string[]",
+        description: "Text mark; one entry per line.",
+      },
+      {
+        name: "image",
+        reactFirst: true,
+        type: "string",
+        description:
+          "URL or data URI. Wins over `content`, which stays the fallback if it fails to load. Drawn into the cell, so it does not keep its aspect ratio.",
+      },
+      {
+        name: "width",
+        reactFirst: true,
+        type: "number",
+        description: "One mark's cell in px. Measured when omitted for text; 120 for an image.",
+      },
+      {
+        name: "height",
+        reactFirst: true,
+        type: "number",
+        description: "Lines x line-height when omitted for text; 64 for an image.",
+      },
+      { name: "rotate", type: "number", default: "-22", description: "Degrees, clockwise." },
+      {
+        name: "zIndex",
+        reactFirst: true,
+        type: "number",
+        default: "9",
+        description:
+          "Stacking order inside the region. A child with a higher `z-index` paints above the mark.",
+      },
+      {
+        name: "gap",
+        reactFirst: true,
+        type: "[number, number]",
+        default: "[100, 100]",
+        description: "`[x, y]` px between marks.",
+      },
+      {
+        name: "offset",
+        reactFirst: true,
+        type: "[number, number]",
+        default: "half the gap",
+        description:
+          "`[x, y]` px shift of the whole pattern. Physical, so it does not mirror in RTL.",
+      },
+      {
+        name: "font",
+        reactFirst: true,
+        type: "{ color, fontSize, fontWeight, fontFamily, fontStyle }",
+        description:
+          '`fontWeight: "light"` is mapped to 300 rather than passed through — one invalid token makes canvas drop the entire font and draw 10px sans-serif without a word.',
+      },
+    ],
+    parts: [
+      { part: "root", description: "The wrapper. Positioned, so the overlay resolves against it." },
+      {
+        part: "overlay",
+        description:
+          "The mark itself, `aria-hidden` and `pointer-events: none`. Written imperatively — style it through the props, not with CSS, because anything a stylesheet changes here is restored.",
+      },
+    ],
+    samples: {
+      react: `<Watermark content={["CrossKit", "confidential"]}>
+  <article>…</article>
+</Watermark>`,
+      vue: `<Watermark :content="['CrossKit', 'confidential']">
+  <article>…</article>
+</Watermark>`,
+      svelte: `<Watermark content={["CrossKit", "confidential"]}>
+  <article>…</article>
+</Watermark>`,
+      angular: `<ck-watermark [content]="['CrossKit', 'confidential']">
+  <article>…</article>
+</ck-watermark>`,
+    },
+  },
 ];

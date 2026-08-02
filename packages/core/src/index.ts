@@ -29,6 +29,7 @@ export * from "./toast";
 export * from "./placement";
 export * from "./table";
 export * from "./tree";
+export * from "./watermark";
 export * from "./date/calendar";
 export * from "./date/format";
 export * from "./date/time";
