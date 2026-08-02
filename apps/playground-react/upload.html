@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CrossKit — upload harness</title>
+    <style>
+      /* Unlayered, and deliberately so: unlayered CSS beats layered CSS whatever
+         the specificity, so this one-class rule has to win over
+         [data-scope="upload"][data-part="root"] at (0,3,0). That is the whole
+         reason upload.css sits inside @layer ck.components, and it is only
+         observable against a real cascade.
+
+         It has to name a property upload.css ALSO sets on the root, or there is
+         nothing for the cascade to decide and the assertion passes whether or
+         not anything is layered. `color` is that property; `background` is not,
+         and an earlier version of this rule used it and could not fail. */
+      .consumer-override {
+        color: rgb(255, 0, 0);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- What jsdom cannot answer here. The progress fill is sized by
+         calc(var(--ck-upload-progress) * 1%) on a flex track, so its painted
+         width is layout and its growth direction is the RTL claim. A drop
+         carrying a genuine DataTransfer of genuine Files is the only way to see
+         that path end to end. And the hover guard on a failed row exists purely
+         because two (0,3,0) rules would otherwise be settled by source order. -->
+    <div id="root"></div>
+    <script type="module" src="/upload.tsx"></script>
+  </body>
+</html>
