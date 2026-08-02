@@ -1,0 +1,212 @@
+/* Cascader.
+
+   The columns ARE the content's flex row — there is no extra wrapper part,
+   because one would be a box with nothing to say. Compound selectors
+   throughout, never descendant: `item`, `content` and `column` are names other
+   scopes use too, and a descendant selector would reach a consumer's own markup
+   rendered inside a title. */
+@layer ck.components {
+  [data-scope="cascader"][data-part="control"] {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+  }
+
+  [data-scope="cascader"][data-part="trigger"] {
+    /* Stated, because an Angular root can be a custom element and those default
+       to `display: inline`. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    inline-size: 100%;
+    min-inline-size: 0;
+    padding-inline: 0.75rem;
+    padding-block: 0.375rem;
+    background: var(--ck-surface);
+    border: 1px solid var(--ck-border);
+    border-radius: var(--ck-radius-base);
+    color: var(--ck-fg);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  [data-scope="cascader"][data-part="trigger"][data-size="small"] {
+    padding-block: 0.1875rem;
+    font-size: var(--ck-font-size-sm);
+  }
+  [data-scope="cascader"][data-part="trigger"][data-size="large"] {
+    padding-block: 0.5625rem;
+    font-size: var(--ck-font-size-lg);
+  }
+  [data-scope="cascader"][data-part="trigger"]:not([data-disabled]):hover {
+    border-color: var(--ck-accent-solid);
+  }
+  [data-scope="cascader"][data-part="trigger"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    outline-offset: 1px;
+  }
+  [data-scope="cascader"][data-part="trigger"][data-disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  [data-scope="cascader"][data-part="trigger"][data-status="error"] {
+    border-color: var(--ck-danger-solid);
+  }
+  [data-scope="cascader"][data-part="trigger"][data-status="warning"] {
+    border-color: var(--ck-warning-solid);
+  }
+
+  [data-scope="cascader"][data-part="placeholder"] {
+    display: block;
+    flex: 1;
+    min-inline-size: 0;
+    color: var(--ck-fg-muted);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* One box, so the ellipsis has one thing to clip — the joined path, not each
+     segment separately. */
+  [data-scope="cascader"][data-part="value-text"] {
+    display: block;
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  [data-scope="cascader"][data-part="indicator"] {
+    display: flex;
+    flex: none;
+    color: var(--ck-fg-muted);
+    transition: rotate var(--ck-duration-sm) var(--ck-ease-out);
+  }
+  /* Turned, not swapped for an up-chevron: one shape, and something for the
+     transition to run between. */
+  [data-scope="cascader"][data-part="indicator"][data-state="open"] {
+    rotate: 180deg;
+  }
+
+  [data-scope="cascader"][data-part="clear"] {
+    display: flex;
+    flex: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ck-fg-muted);
+    cursor: pointer;
+    line-height: 0;
+    position: absolute;
+    inset-inline-end: 0.75rem;
+  }
+  [data-scope="cascader"][data-part="clear"]:hover {
+    color: var(--ck-fg);
+  }
+
+  [data-scope="cascader"][data-part="positioner"] {
+    z-index: var(--ck-z-popover);
+  }
+  [data-scope="cascader"][data-part="content"] {
+    /* The row of columns. No `flex-direction`, deliberately: `direction: rtl`
+       reverses the inline axis for free, and a `row-reverse` "fix" would break
+       it in LTR. Column ORDER is the RTL claim. */
+    display: flex;
+    align-items: stretch;
+    /* Deliberately NO `inline-size: var(--ck-anchor-width)`. Its siblings match
+       their popup to their control; a cascader is wider than its trigger by
+       definition, and clamping it would crush every column past the first. The
+       line's absence would otherwise read as an omission. */
+    padding: 0.25rem;
+    background: var(--ck-surface);
+    border: 1px solid var(--ck-border);
+    border-radius: var(--ck-radius-md);
+    box-shadow: var(--ck-shadow-lg);
+    outline: none;
+  }
+  [data-scope="cascader"][data-part="content"][data-state="open"] {
+    animation: ck-overlay-in var(--ck-duration-sm) var(--ck-ease-out);
+  }
+  [data-scope="cascader"][data-part="content"][data-state="closed"] {
+    animation: ck-overlay-out var(--ck-duration-sm) var(--ck-ease-in);
+  }
+
+  [data-scope="cascader"][data-part="column"] {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 8rem;
+    max-block-size: 15rem;
+    /* Each column scrolls on its own. The content must not, or a long first
+       level would take every other column out of view with it. */
+    overflow-y: auto;
+    padding-inline: 0.25rem;
+  }
+  /* The divider between columns, on the leading edge. `+` rather than
+     `:first-child`, so it states "between columns" instead of depending on what
+     else the content happens to hold. */
+  [data-scope="cascader"][data-part="column"] + [data-part="column"] {
+    border-inline-start: 1px solid var(--ck-border);
+  }
+
+  [data-scope="cascader"][data-part="item"] {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding-inline: 0.5rem;
+    padding-block: 0.25rem;
+    border-radius: var(--ck-radius-base);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  /* (0,6,0), and it excludes BOTH chosen states. A bare `[data-active]` is
+     (0,3,0) and a `:hover` that also names the part is (0,4,0), so without a
+     guard the hover wins and the chosen row repaints under the pointer.
+
+     Only `:not([data-selected])` is observable today: the active fill and the
+     hover fill are currently the same colour, so dropping `:not([data-active])`
+     changes nothing that can be measured. It is kept because it is what keeps
+     this rule correct if either fill is ever retuned — which is the whole
+     reason the specificity trap is worth guarding rather than relying on. */
+  [data-scope="cascader"][data-part="item"]:not([data-disabled]):not([data-active]):not(
+      [data-selected]
+    ):hover {
+    background: var(--ck-surface-hover);
+  }
+  /* Written before the selected rule AND carrying `:not([data-selected])`, so
+     which fill wins does not depend on source order. */
+  [data-scope="cascader"][data-part="item"][data-active]:not([data-selected]) {
+    background: var(--ck-surface-hover);
+  }
+  [data-scope="cascader"][data-part="item"][data-selected] {
+    background: var(
+      --ck-accent-subtle,
+      color-mix(in oklab, var(--ck-accent-solid) 15%, transparent)
+    );
+  }
+  [data-scope="cascader"][data-part="item"][data-disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  [data-scope="cascader"][data-part="item"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    outline-offset: -2px;
+  }
+
+  [data-scope="cascader"][data-part="item-text"] {
+    flex: 1;
+    min-inline-size: 0;
+  }
+  /* Reserved whether or not the item has children, so titles across a column
+     share a leading edge — the same width `tree.css` keeps for the expander. */
+  [data-scope="cascader"][data-part="item-indicator"] {
+    display: flex;
+    flex: none;
+    inline-size: 1rem;
+    color: var(--ck-fg-muted);
+  }
+  /* A chevron pointing INTO the next column points the other way when the next
+     column is on the other side. */
+  [data-scope="cascader"][data-part="item-indicator"]:dir(rtl) svg {
+    scale: -1 1;
+  }
+}
