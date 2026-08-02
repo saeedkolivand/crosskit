@@ -1,0 +1,102 @@
+/* Splitter — resizable panes with a draggable bar between them. */
+@layer ck.components {
+  [data-scope="splitter"][data-part="root"] {
+    display: flex;
+    inline-size: 100%;
+    /* A flex item's automatic minimum size is its content's min-content size, so
+       a nested splitter holding anything wide refuses to shrink and pushes its
+       own parent out. Both axes, unconditionally, on the root as well as the
+       panels. */
+    min-inline-size: 0;
+    min-block-size: 0;
+  }
+  [data-scope="splitter"][data-part="root"][data-orientation="vertical"] {
+    flex-direction: column;
+    /* Panels are `flex-basis: 0`, so in an auto-height parent every one of them
+       resolves to zero and the whole component renders invisibly with no error
+       anywhere. An arbitrary but non-zero default is the fix, and it is safe to
+       override because everything here ships inside a cascade layer. */
+    block-size: 12rem;
+  }
+  /* Only while dragging, so ordinary selection still works — a drag across two
+     panels otherwise selects every word between them. */
+  [data-scope="splitter"][data-part="root"][data-dragging] {
+    user-select: none;
+  }
+
+  [data-scope="splitter"][data-part="panel"] {
+    /* Explicit, because the reset keys on `[data-scope][data-part]` and a part
+       that inherits `content-box` is a border wider than the number that
+       positioned it. */
+    box-sizing: border-box;
+    /* The percentage lives in `flex-grow` against a ZERO basis, so the bars
+       claim their own size first and the panels divide what is genuinely left.
+       In `flex-basis` it would need `calc(33% - Npx)` with N derived from the
+       bar count, and be wrong the moment `--ck-splitter-bar-size` changes. It is
+       also why a container resize needs no JavaScript: flexbox re-divides the
+       ratio itself. */
+    flex: var(--ck-splitter-size, 1) 1 0;
+    min-inline-size: 0;
+    min-block-size: 0;
+    /* Clips without becoming a containing block. `contain: paint` is the
+       plausible optimisation here and it would capture every `position: fixed`
+       popup a consumer renders inside a panel. */
+    overflow: hidden;
+  }
+
+  [data-scope="splitter"][data-part="bar"] {
+    box-sizing: border-box;
+    position: relative;
+    flex: 0 0 var(--ck-splitter-bar-size, 0.5rem);
+    /* Without this the browser claims the drag as a scroll gesture before the
+       pointer handlers ever see it, on every touch device. */
+    touch-action: none;
+    cursor: col-resize;
+  }
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"] {
+    cursor: row-resize;
+  }
+  [data-scope="splitter"][data-part="bar"][data-disabled] {
+    cursor: default;
+  }
+
+  /* The visible seam is generated content on the bar, so there is one node per
+     bar and the whole ~0.5rem of it is the hit area. Centred with a negative
+     logical margin rather than `translate`, which is physical whatever the
+     offset property beside it is and would need an RTL mirror the bar's known
+     size makes unnecessary. */
+  [data-scope="splitter"][data-part="bar"]::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 50%;
+    inline-size: 1px;
+    margin-inline-start: -0.5px;
+    background: var(--ck-border);
+  }
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]::before {
+    inset-inline: 0;
+    inset-block-start: 50%;
+    block-size: 1px;
+    margin-block-start: -0.5px;
+    inline-size: auto;
+    margin-inline-start: 0;
+  }
+
+  /* Guarded rather than reordered: the active rule below is (0,3,0) and a bare
+     `:hover` on the same part is (0,3,0) too, so the later one wins and a bar
+     being dragged repaints in the hover colour whenever the pointer happens to
+     be over it — which is most of a drag. Guarding survives someone reordering
+     this file; reordering does not. */
+  [data-scope="splitter"][data-part="bar"]:hover:not([data-active]):not([data-disabled])::before {
+    background: var(--ck-border-hover);
+  }
+  [data-scope="splitter"][data-part="bar"][data-active]::before {
+    background: var(--ck-accent-solid);
+  }
+
+  [data-scope="splitter"][data-part="bar"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    outline-offset: -2px;
+  }
+}

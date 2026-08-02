@@ -17,3 +17,14 @@ if (!("ResizeObserver" in globalThis)) {
 // take the whole event down with them.
 Element.prototype.scrollTo ??= () => {};
 Element.prototype.scrollIntoView ??= () => {};
+
+// And for pointer capture, which jsdom 30 does not implement either — verified
+// undefined rather than merely a no-op. Splitter's bar calls it on pointerdown
+// so a drag that leaves the ~8px bar keeps tracking; unstubbed it throws a
+// TypeError and takes the whole handler down before the drag ever starts. The
+// stub belongs here rather than an optional chain in shipped code: the platform
+// API is not optional in a browser, and guarding it there would hide a real
+// failure behind a silent no-op.
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.hasPointerCapture ??= () => false;

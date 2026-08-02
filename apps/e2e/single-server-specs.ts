@@ -9,4 +9,4 @@
  * where there is no baseURL and every `page.goto` throws.
  */
 export const SINGLE_SERVER_SPECS =
-  /(position|overlay|anchored|reduced-motion|toast|skeleton|navigation|data|nesting|numeric|confirm|form|date|tree)\.spec\.ts$/;
+  /(position|overlay|anchored|reduced-motion|toast|skeleton|navigation|data|nesting|numeric|confirm|form|date|tree|splitter)\.spec\.ts$/;
