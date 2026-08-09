@@ -146,3 +146,12 @@ export { TimePicker, type TimePickerProps } from "./date/time-picker";
 export { Tree, type TreeProps, type TreeNode } from "./tree/tree";
 export { TreeSelect, type TreeSelectProps, type TreeSelectSize } from "./tree/tree-select";
 export { Cascader, type CascaderProps, type CascaderSize } from "./cascader/cascader";
+export {
+  Upload,
+  UploadDragger,
+  type UploadProps,
+  type UploadChangeInfo,
+  type UploadRequestArgs,
+  type UploadListType,
+  type UploadFile,
+} from "./upload/upload";

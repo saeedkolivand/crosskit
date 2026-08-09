@@ -279,4 +279,173 @@ export const forms: ComponentDoc[] = [
 </ck-select>`,
     },
   },
+  {
+    slug: "upload",
+    name: "Upload",
+    group: "Forms",
+    scope: "upload",
+    isNew: true,
+    summary:
+      "A file queue with a trigger, a list, per-file progress and retry — plus `Upload.Dragger`, the drop-target form. The queue arithmetic is framework-free and lives in `@crosskit-ui/core`, so the `accept` filter applies to a drop as well as to the file dialog; the attribute alone only filters the OS dialog.",
+    gains: [
+      "Upload.Dragger, with a drag counter that does not flicker over child elements",
+      "Progress as an inline custom property, so the bar grows from the inline start in RTL too",
+      "Retry on a failed file, which is the same transition as a first attempt",
+      "A request that resolves after its file was removed cannot put the row back",
+      "customRequest, for a transport that is not a plain multipart POST",
+    ],
+    props: [
+      {
+        name: "fileList, defaultFileList",
+        type: "UploadFile[]",
+        description: "The queue, controlled or not. Entries carry uid, name, status and percent.",
+      },
+      {
+        name: "onChange",
+        type: "(info: { file: UploadFile; fileList: UploadFile[] }) => void",
+        description:
+          "Fires on add, on every progress tick, on settle and on remove. A controlled Upload needs it to move at all.",
+      },
+      {
+        name: "action",
+        type: "string | ((file: File) => string | Promise<string>)",
+        description:
+          "Where to POST. A function is awaited after the row is already showing as uploading, which is what signed-URL flows need.",
+      },
+      { name: "method", type: '"POST" | "PUT"', default: '"POST"', description: "Request method." },
+      { name: "headers", type: "Record<string, string>", description: "Extra request headers." },
+      {
+        name: "data",
+        type: "Record<string, string> | ((file: File) => Record<string, string>)",
+        description: "Extra multipart fields sent alongside the file.",
+      },
+      {
+        name: "name",
+        type: "string",
+        default: '"file"',
+        description:
+          "The multipart FIELD name — not the form field name `name` means on Input, Select and DatePicker. Kept for drop-in compatibility; it is a genuine collision.",
+      },
+      {
+        name: "withCredentials",
+        type: "boolean",
+        default: "false",
+        description: "Send cookies cross-origin.",
+      },
+      {
+        name: "customRequest",
+        type: "(args: UploadRequestArgs) => { abort: () => void } | void",
+        description:
+          "Replaces the built-in transport entirely. Wins over `action`. Return an abort and remove/unmount will call it.",
+      },
+      {
+        name: "beforeUpload",
+        type: "(file: File, files: File[]) => boolean | Promise<boolean>",
+        description:
+          "`false` — or a rejected promise — lists the file at status `selected` and never uploads it. The second argument is the files that were ADMITTED, not the raw batch: what `accept` and `maxCount` let through.",
+      },
+      { name: "multiple", type: "boolean", default: "false", description: "Allow a multi-pick." },
+      {
+        name: "accept",
+        type: "string",
+        description:
+          "The `<input accept>` grammar. Re-checked on drop as well, which the attribute cannot do.",
+      },
+      {
+        name: "maxCount",
+        type: "number",
+        description:
+          "`1` REPLACES the list and drops `multiple` from the dialog; any other value truncates the incoming batch to the room left. The replaced row is aborted, revoked and reported through `onChange` — a replacement is a removal plus an addition.",
+      },
+      {
+        name: "disabled",
+        type: "boolean",
+        default: "false",
+        description: "Refuse picks and drops, and disable each row's own Retry and Remove.",
+      },
+      {
+        name: "listType",
+        type: '"text" | "picture"',
+        default: '"text"',
+        description: "`picture` shows a thumbnail, minted and revoked by the component.",
+      },
+      {
+        name: "showUploadList",
+        type: "boolean",
+        default: "true",
+        description:
+          "Render the list at all. Nothing is emitted when it is off or the list is empty.",
+      },
+      {
+        name: "onRemove",
+        type: "(file: UploadFile) => boolean | Promise<boolean>",
+        description: "`false` vetoes the removal. Removing aborts an in-flight request first.",
+      },
+      {
+        name: "onPreview",
+        type: "(file: UploadFile) => void",
+        description: "Makes the file name a button rather than a link.",
+      },
+      {
+        name: "directory",
+        type: "boolean",
+        default: "false",
+        description:
+          "Pick a whole folder. Implies `multiple`, and names rows by their folder path.",
+      },
+    ],
+    parts: [
+      { part: "root", description: "The wrapper. Carries data-list-type and data-disabled." },
+      {
+        part: "trigger",
+        description: "Wraps your children on the plain Upload. Inert — the child is the control.",
+      },
+      {
+        part: "dropzone",
+        description: "Upload.Dragger's target. role=button, with Enter and Space.",
+      },
+      { part: "input", description: "The hidden file input. Visually hidden, never display:none." },
+      { part: "list", description: "The <ul>. Absent when there is nothing in it." },
+      { part: "item", description: "One row. data-state is selected | uploading | done | error." },
+      {
+        part: "item-name",
+        description: "A button with onPreview, a link with a url, plain text otherwise.",
+      },
+      {
+        part: "item-progress",
+        description: "role=progressbar; the fill reads --ck-upload-progress.",
+      },
+      { part: "item-actions", description: "Retry and remove, at the inline end." },
+      { part: "status", description: "A visually hidden live region, written only on settle." },
+    ],
+    samples: {
+      react: `import { Upload, Button } from "@crosskit-ui/react";
+
+<Upload action="/api/upload" multiple accept="image/*" maxCount={5}>
+  <Button>Select files</Button>
+</Upload>
+
+<Upload.Dragger action="/api/upload" listType="picture">
+  <p>Drop files here</p>
+</Upload.Dragger>
+
+{/* Inside a Form. Form.Item's default getValueFromEvent returns the first
+    argument whole, and ours is the change info rather than a value — so the
+    binding has to say which half of it is the value. */}
+<Form.Item name="files" valuePropName="fileList" getValueFromEvent={info => info.fileList}>
+  <Upload action="/api/upload">
+    <Button>Select files</Button>
+  </Upload>
+</Form.Item>`,
+      vue: `<Upload action="/api/upload" multiple accept="image/*" :max-count="5">
+  <Button>Select files</Button>
+</Upload>`,
+      svelte: `<Upload action="/api/upload" multiple accept="image/*" maxCount={5}>
+  <Button>Select files</Button>
+</Upload>`,
+      angular: `<ck-upload action="/api/upload" multiple accept="image/*" [maxCount]="5">
+  <button ckButton>Select files</button>
+</ck-upload>`,
+    },
+  },
 ];

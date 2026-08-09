@@ -1,0 +1,242 @@
+/* Upload, and Upload.Dragger.
+
+   Two things here are load-bearing rather than decorative. The progress fill is
+   sized from a custom property through `calc(var() * 1%)`, because CSS cannot do
+   arithmetic on an attribute value and `[data-progress]` would MATCH at "0" —
+   the presence-attribute trap one spelling sideways. And every hover rule is
+   guarded, because `[data-scope][data-part]:hover` and
+   `[data-scope][data-part][data-state]` are both (0,3,0), so an unguarded hover
+   wins on source order alone and repaints a failed row on the way to its own
+   retry button. */
+@layer ck.components {
+  [data-scope="upload"][data-part="root"] {
+    /* Stated, because an Angular root can be a custom element and those default
+       to `display: inline`. */
+    display: block;
+    color: var(--ck-fg);
+  }
+  [data-scope="upload"][data-part="root"][data-disabled] {
+    opacity: 0.6;
+  }
+
+  [data-scope="upload"][data-part="trigger"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  [data-scope="upload"][data-part="root"][data-disabled] > [data-part="trigger"] {
+    cursor: not-allowed;
+  }
+
+  /* Visually hidden, and NOT `display: none` — the element still has to be able
+     to open the file dialog when `.click()` reaches it. `aria-hidden` and
+     `tabindex="-1"` come from the markup, so it adds no second tab stop. */
+  [data-scope="upload"][data-part="input"] {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    border: 0;
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  [data-scope="upload"][data-part="dropzone"] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    inline-size: 100%;
+    padding-block: 1.5rem;
+    padding-inline: 1rem;
+    border: 1px dashed var(--ck-border);
+    border-radius: var(--ck-radius-md);
+    background: var(--ck-surface);
+    color: var(--ck-fg-muted);
+    text-align: center;
+    cursor: pointer;
+  }
+  /* Guarded on `[data-drag-over]` as well as on `[data-disabled]`: this rule is
+     (0,4,0) with the `:hover` and the drag-over rule below is (0,3,0), so the
+     pointer's border colour would outrank the drop highlight's. Engines suppress
+     `:hover` while a drag is in progress, which masks it today and would keep
+     masking it right up until one of them stops. Source order cannot settle
+     this — only the guard can. */
+  [data-scope="upload"][data-part="dropzone"]:not([data-disabled]):not([data-drag-over]):hover {
+    border-color: var(--ck-accent-border, var(--ck-accent-solid));
+  }
+  [data-scope="upload"][data-part="dropzone"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    outline-offset: 2px;
+  }
+  [data-scope="upload"][data-part="dropzone"][data-drag-over] {
+    border-color: var(--ck-accent-solid);
+    background: color-mix(in oklab, var(--ck-accent-solid) 8%, var(--ck-surface));
+  }
+  [data-scope="upload"][data-part="dropzone"][data-disabled] {
+    cursor: not-allowed;
+  }
+
+  [data-scope="upload"][data-part="list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-block: 0.5rem 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  [data-scope="upload"][data-part="item"] {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    /* Logical, so a row's inner spacing mirrors with the document rather than
+       staying pinned to the left edge in RTL. */
+    padding-inline: 0.375rem;
+    padding-block: 0.25rem;
+    border-radius: var(--ck-radius-base);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+  [data-scope="upload"][data-part="item"][data-state="error"] {
+    background: color-mix(in oklab, var(--ck-danger-solid) 8%, transparent);
+    color: var(--ck-danger-solid);
+  }
+  /* The `:not()` is what holds this, and NOT the fact that the error rule is
+     written above it. `[a][b]:hover` and `[a][b][data-state]` are both (0,3,0),
+     so between them only source order decides — and this one comes later, which
+     means without the guard the pointer repaints a failed row as an ordinary
+     one on its way to that row's own retry button. Written in this order
+     deliberately, so the guard is the only thing standing between the two and
+     `upload.spec.ts` can tell whether it is still there. */
+  [data-scope="upload"][data-part="item"]:not([data-state="error"]):hover {
+    background: var(--ck-surface-hover);
+  }
+  [data-scope="upload"][data-part="item"][data-list-type="picture"] {
+    padding-block: 0.375rem;
+  }
+
+  [data-scope="upload"][data-part="item-icon"] {
+    display: inline-flex;
+    flex: none;
+    color: var(--ck-fg-muted);
+  }
+
+  [data-scope="upload"][data-part="thumbnail"] {
+    display: block;
+    flex: none;
+    inline-size: 2.5rem;
+    /* Square whatever the file's own ratio is, and cropped rather than squashed
+       — a portrait and a landscape thumbnail must line up down the column. */
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: var(--ck-radius-base);
+    background: var(--ck-surface-hover);
+  }
+
+  [data-scope="upload"][data-part="item-name"] {
+    flex: 1;
+    /* `overflow: hidden` is doing two jobs. The obvious one is clipping — the
+       less obvious one is that a flex item's automatic minimum size only
+       applies while `overflow` is `visible`, so this is also what lets the name
+       shrink below its own content. An explicit `min-inline-size: 0` beside it
+       would be the usual incantation and would change nothing here; measured,
+       and left out rather than kept as a comment claiming to hold something up. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: start;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  a[data-scope="upload"][data-part="item-name"],
+  button[data-scope="upload"][data-part="item-name"] {
+    cursor: pointer;
+    text-decoration: none;
+  }
+  a[data-scope="upload"][data-part="item-name"]:hover,
+  button[data-scope="upload"][data-part="item-name"]:hover {
+    text-decoration: underline;
+  }
+
+  [data-scope="upload"][data-part="item-progress"] {
+    display: flex;
+    flex: none;
+    inline-size: 6rem;
+    block-size: 0.25rem;
+    border-radius: 999px;
+    background: var(--ck-surface-hover);
+    overflow: hidden;
+  }
+  /* Sized, not translated. `translate` is physical whatever sits beside it, so a
+     `transform: translateX` fill passes LTR and grows from the wrong edge in
+     RTL — the trap the slider thumb already documents. A flex track plus an
+     inline size grows from the inline start in both directions for free. */
+  [data-scope="upload"][data-part="item-progress-bar"] {
+    display: block;
+    inline-size: calc(var(--ck-upload-progress, 0) * 1%);
+    block-size: 100%;
+    border-radius: inherit;
+    background: var(--ck-accent-solid);
+    transition: inline-size var(--ck-duration-sm) var(--ck-ease-out);
+  }
+
+  [data-scope="upload"][data-part="item-error"] {
+    flex: none;
+    font-size: 0.8125rem;
+    color: var(--ck-danger-solid);
+  }
+
+  /* No auto margin. `item-name` is `flex: 1` and eats every pixel of free space
+     in the row, so a `margin-inline-start: auto` here has nothing left to push
+     against — it was dead, and the RTL assertions that named it were passing on
+     the name's growth instead. What puts the actions at the inline end is that
+     growth, and `upload.spec.ts` now measures against the row's own inline end
+     so that removing it fails. */
+  [data-scope="upload"][data-part="item-actions"] {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.125rem;
+  }
+
+  [data-scope="upload"][data-part="retry"],
+  [data-scope="upload"][data-part="remove"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.125rem;
+    border: 0;
+    border-radius: var(--ck-radius-base);
+    background: none;
+    color: var(--ck-fg-muted);
+    cursor: pointer;
+    line-height: 0;
+  }
+  [data-scope="upload"][data-part="retry"]:not([data-disabled]):hover,
+  [data-scope="upload"][data-part="remove"]:not([data-disabled]):hover {
+    color: var(--ck-fg);
+  }
+  [data-scope="upload"][data-part="retry"]:focus-visible,
+  [data-scope="upload"][data-part="remove"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    outline-offset: -1px;
+  }
+
+  /* The live region. Present in every render so the region is registered before
+     its first content — one that appears with its text already in it is never
+     announced. */
+  [data-scope="upload"][data-part="status"] {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
