@@ -150,6 +150,11 @@ export { Calendar, type CalendarProps, type DateRange, type DisabledDate } from 
 export { DatePicker, type DatePickerProps, type DatePickerSize } from "./date/date-picker";
 export { RangePicker, type RangePickerProps, type DateRangeValue } from "./date/range-picker";
 export { TimePicker, type TimePickerProps } from "./date/time-picker";
+export { Watermark, type WatermarkProps } from "./watermark/watermark";
+// Re-exported rather than left in core: `font` is a prop of a React component,
+// so typing a variable that holds one must not send a consumer to a second
+// package for the type.
+export type { WatermarkFont } from "@crosskit-ui/core";
 export { Tree, type TreeProps, type TreeNode } from "./tree/tree";
 export { TreeSelect, type TreeSelectProps, type TreeSelectSize } from "./tree/tree-select";
 export { Cascader, type CascaderProps, type CascaderSize } from "./cascader/cascader";

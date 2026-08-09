@@ -190,7 +190,7 @@ These components kept their v0 prop names, so only the import path changes:
 
 Nothing to migrate — these did not exist before:
 
-`Upload`, `Popover`.
+`Popover`, `Cascader`, `Splitter`, `Upload`, `Watermark`.
 
 ## Deleted, not renamed
 

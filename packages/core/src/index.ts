@@ -31,6 +31,7 @@ export * from "./placement";
 export * from "./table";
 export * from "./tree";
 export * from "./upload";
+export * from "./watermark";
 export * from "./date/calendar";
 export * from "./date/format";
 export * from "./date/time";

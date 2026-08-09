@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CrossKit — watermark harness</title>
+    <style>
+      /* Unlayered, and scoped to one section, so it beats everything in
+         `ck.components` the way a consumer's own sheet would — which is the
+         cascade question the overlay's inline `!important` exists to answer.
+         Scoped, because a global rule here would hide every other section's
+         overlay and quietly make the rest of the suite vacuous. */
+      #hidden [data-scope="watermark"][data-part="overlay"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: auto !important;
+      }
+
+      /* The other half of the same argument: a consumer sheet putting the root
+         back to `static`. The overlay would then resolve against #static-outer
+         and cover a region that is not the protected one — still drawing
+         something, which is what makes it silent. */
+      #static-root [data-scope="watermark"][data-part="root"] {
+        position: static;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- A real browser, because every claim worth making about a watermark is
+         one jsdom answers wrong by construction: it reports every rect as 0x0,
+         implements no `pointer-events`, resolves no stylesheet and has no
+         canvas at all, so `toDataURL` never returns a raster to assert on. -->
+    <div id="root"></div>
+    <script type="module" src="/watermark.tsx"></script>
+  </body>
+</html>
