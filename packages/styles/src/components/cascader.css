@@ -166,8 +166,10 @@
   }
   /* The divider between columns, on the leading edge. `+` rather than
      `:first-child`, so it states "between columns" instead of depending on what
-     else the content happens to hold. */
-  [data-scope="cascader"][data-part="column"] + [data-part="column"] {
+     else the content happens to hold. Both compounds name the scope: `column`
+     is a shared name, and a selector that drops it on the second half is a rule
+     about "a cascader column next to anyone's column". */
+  [data-scope="cascader"][data-part="column"] + [data-scope="cascader"][data-part="column"] {
     border-inline-start: 1px solid var(--ck-border);
   }
 

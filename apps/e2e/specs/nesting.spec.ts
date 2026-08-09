@@ -72,6 +72,15 @@ const PAIRS = [
   ["skeleton-stat", "statistic", "a Statistic inside a Skeleton.Node"],
   ["empty-list", "list", "a List inside an Empty"],
   ["button-result", "result", "a Result inside a Button"],
+  // The four newest components, both directions: holding someone else's parts,
+  // and having their own parts held. Each was authored knowing only its own
+  // slice of the shared `data-part` vocabulary.
+  ["splitter-list", "list", "a List inside a Splitter.Panel"],
+  ["watermark-desc", "descriptions", "a Descriptions inside a Watermark"],
+  ["dragger-list", "list", "a List inside an Upload.Dragger"],
+  ["card-splitter", "splitter", "a Splitter inside a Card"],
+  ["card-upload", "upload", "an Upload inside a Card"],
+  ["card-cascader", "cascader", "a Cascader inside a Card"],
 ] as const;
 
 for (const [id, held, description] of PAIRS) {

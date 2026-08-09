@@ -24,7 +24,12 @@
     align-items: center;
     gap: 0.5rem;
   }
-  [data-scope="upload"][data-part="root"][data-disabled] > [data-part="trigger"] {
+  /* The scope is repeated on the child compound rather than left as a bare
+     `[data-part="trigger"]`. `trigger` is one of the most shared part names in
+     the library, and the child combinator is a weaker guarantee than it looks:
+     an Upload's own children are what a consumer puts there. */
+  [data-scope="upload"][data-part="root"][data-disabled]
+    > [data-scope="upload"][data-part="trigger"] {
     cursor: not-allowed;
   }
 
