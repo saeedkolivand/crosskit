@@ -120,12 +120,14 @@ export function Cascader({
    * The BROWSING path, which is a different fact from the committed one.
    *
    * It decides which columns exist and where the keyboard is, and it moves
-   * while hovering or arrowing without anything being chosen. Seeded from
-   * `value` at mount AND again when the popup opens — both routes, because
-   * `onOpenChange` never fires for `defaultOpen` and the mount initialiser
-   * never fires for a re-open.
+   * while hovering or arrowing without anything being chosen. Seeded from the
+   * VALUE — the same expression as above, not `defaultValue`: a controlled
+   * consumer never writes `defaultValue`, so reading it here opened a
+   * `defaultOpen` cascader that already held a value with one column.
    */
-  const [active, setActive] = useState<string[]>(() => defaultValue ?? []);
+  const [active, setActive] = useState<string[]>(() =>
+    controlled === undefined ? (defaultValue ?? []) : (controlled ?? [])
+  );
 
   // Clamped on READ, never on write. `options` arriving after `value` — an
   // async load, or a controlled consumer — would otherwise leave the popup with
@@ -142,6 +144,7 @@ export function Cascader({
   // item id, and `Tree` shipped exactly that.
   const baseId = useId();
   const itemId = (depth: number, key: string) => `${baseId}-${depth}-${key}`;
+  const columnId = (depth: number) => `${baseId}-col-${depth}`;
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const setTrigger = (node: HTMLButtonElement | null) => {
@@ -171,13 +174,7 @@ export function Cascader({
     takeFocus: false,
     onOpenChange: details => {
       onOpenChange?.(details);
-      if (details.open) {
-        // Re-seeded here as well as at mount: browsing away and closing without
-        // choosing must not leave the next opening pointing at the abandoned
-        // branch rather than at the committed one.
-        setActive(value);
-        return;
-      }
+      if (details.open) return;
       // Escape and a press outside both close through the dismissable layer,
       // and if a column held focus it is about to be unmounted with focus on it
       // — which leaves <body> focused and the next Tab restarting at the top of
@@ -194,6 +191,25 @@ export function Cascader({
   useEffect(() => {
     anchoredRef.current = anchored;
   });
+
+  /**
+   * Re-seeds the browsing path on every OPENING, whatever caused it.
+   *
+   * Not from `onOpenChange`, which is where this used to live and which two
+   * routes never reach: `defaultOpen` reports nothing at all, and a controlled
+   * consumer flipping `open` themselves writes the prop rather than calling
+   * `setOpen`. Either one left the popup pointing at the branch abandoned last
+   * time rather than at the committed value.
+   *
+   * A state variable rather than a ref, and adjusted during render rather than
+   * from an effect: reading and writing a ref while rendering is not safe under
+   * concurrent rendering, and an effect would paint the stale columns first.
+   */
+  const [wasOpen, setWasOpen] = useState(anchored.open);
+  if (wasOpen !== anchored.open) {
+    setWasOpen(anchored.open);
+    if (anchored.open && !samePath(active, value)) setActive(value);
+  }
 
   /**
    * Puts focus on an item and scrolls only the column it is in.
@@ -239,23 +255,24 @@ export function Cascader({
   /**
    * Moves the browsing path, focusing the destination BEFORE the state changes.
    *
-   * The target is always already mounted, and that is a property of the shape
-   * rather than a coincidence: every caller moves within `columns[focusCol]`,
-   * one level shallower, or into `columns[focusCol + 1]` — and that column
-   * exists exactly when the focused node has children, which is the only case
-   * the move is offered in. So the lookup cannot miss.
-   *
    * Focusing first is what keeps focus off <body>. Going shallower drops a
    * column, and React removing the node focus is on leaves the document body
    * focused — `pushDismissable` listens on `focusin`, so the layer does not
    * dismiss, but the next Tab restarts at the top of the page. Doing it from an
    * effect instead would still land in the right place, one frame later and
    * with that gap in between.
+   *
+   * The one destination that is NOT mounted yet is a step deeper out of a
+   * column the path has not reached — `columns` is derived from the path, so
+   * stepping deeper from the tab stop of an unbrowsed column 0 asks for a
+   * column this render does not have. That hands the move to the effect above,
+   * which runs once the column exists.
    */
   const movePath = (next: string[]) => {
     const key = next.at(-1);
     const target = key === undefined ? null : document.getElementById(itemId(next.length - 1, key));
     if (target) focusItem(target);
+    else handOverRef.current = true;
     setActive(next);
   };
 
@@ -271,15 +288,34 @@ export function Cascader({
     // choice is a trap — so this commits only on a change, and closes either way.
     if (!samePath(next, value)) commit(next);
     if (branch) return;
+    // No focus call here. `movePath` above has just put focus on the item, so
+    // it is inside the content — which is exactly the condition `onOpenChange`
+    // restores from, synchronously, inside this `setOpen`. A second one was
+    // doing the same work twice.
     anchored.setOpen(false);
-    triggerRef.current?.focus({ preventScroll: true });
   };
 
   const onContentKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    // Escape and Tab are deliberately absent. `pushDismissable` answers Escape
-    // in the capture phase and has already called back; `role: "listbox"` gives
-    // the layer `focus: true`, so focus leaving it closes it. Handling either
-    // here fires `onOpenChange` twice for one press.
+    // Escape is deliberately absent: `pushDismissable` answers it in the
+    // capture phase and has already called back, so answering it again fires
+    // `onOpenChange` twice for one press.
+    //
+    // Tab is NOT one of those. `role: "listbox"` does give the layer
+    // `focus: true`, but that closes on a `focusin` landing outside — and Tab
+    // forward off the last tab stop of a popup portalled to the END of the
+    // document lands on nothing, fires no `focusin`, and left the popup open
+    // with focus on <body>. Nothing else answers it either: `takeFocus` is
+    // false, so neither of the hook's own Tab handlers is attached, and there
+    // is no double-fire to inherit.
+    //
+    // Deliberately no `preventDefault`. Closing hands focus back to the trigger
+    // (see `onOpenChange`), and the browser's own Tab then runs from there — so
+    // the user lands on whatever follows the control rather than at the top of
+    // the page.
+    if (event.key === "Tab") {
+      anchored.setOpen(false);
+      return;
+    }
     const column = columns[focusCol];
     if (!column) return;
     // `focusKey`, not `path[focusCol]`. With nothing browsed yet the path is
@@ -295,12 +331,18 @@ export function Cascader({
     const shallower = rtl ? "ArrowRight" : "ArrowLeft";
 
     if (event.key === deeper) {
-      // The next column exists if and only if the focused node has children, so
-      // there is no separate check to keep in step with `hasChildren`.
-      const child = columns[focusCol + 1]?.find(node => !node.disabled);
+      // Asked of the focused NODE, never of `columns[focusCol + 1]`. The
+      // columns are derived from the path, and the tab stop is off the path
+      // whenever nothing has been browsed yet — so on a freshly opened cascader
+      // with no value there is no column beside column 0, and reading one made
+      // this key dead. The same off-the-path reading was already fixed in the
+      // Enter and the vertical-arrow handlers; this was the third.
+      const node = column.find(candidate => candidate.key === current);
+      if (!node || !hasChildren(node)) return;
+      const child = node.children!.find(candidate => !candidate.disabled);
       if (!child) return;
       event.preventDefault();
-      movePath([...path, child.key]);
+      movePath([...path.slice(0, focusCol), node.key, child.key]);
       return;
     }
     if (event.key === shallower) {
@@ -380,6 +422,7 @@ export function Cascader({
       body={columns.map((column, depth) => (
         <div
           key={depth}
+          id={columnId(depth)}
           data-scope="cascader"
           data-part="column"
           data-depth={String(depth)}
@@ -472,6 +515,10 @@ export function Cascader({
         data-status={status}
         data-disabled={dataAttr(disabled)}
         data-empty={dataAttr(empty)}
+        // The clear button is absolutely positioned OVER this box, so the box
+        // is what has to make room for it. Without this it lands exactly on the
+        // indicator and swallows the press that should open the popup.
+        data-clearable={dataAttr(showClear)}
         id={id}
         disabled={disabled}
         // The button carries its own ARIA rather than relying on AnchoredView's
@@ -482,7 +529,11 @@ export function Cascader({
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={anchored.open ? "true" : "false"}
-        aria-controls={anchored.open ? anchored.contentId : undefined}
+        // The FIRST COLUMN, not the content around it. `contentProps` strips
+        // the hook's role, so `aria-controls` pointed at a div with no role at
+        // all — a combobox claiming to control nothing in particular. Column 0
+        // is the control's own list, and is a real `listbox`.
+        aria-controls={anchored.open ? columnId(0) : undefined}
         aria-label={ariaLabel}
         aria-describedby={describedBy}
         aria-invalid={status === "error" || ariaInvalid ? true : undefined}

@@ -18,14 +18,15 @@ re-resolving the path themselves would hit exactly that.
 means uncontrolled, so `value={null}` is a controlled clear rather than a silent
 handover to internal state.
 
-Two paths are held, not one. The committed value decides what the trigger reads
-and what is painted chosen; a separate **browsing** path decides which columns
-exist and where the keyboard is. They move independently — hovering or arrowing
-opens a column without choosing anything — and the browsing one is re-seeded
-from the value each time the popup opens, so abandoning a branch does not leave
-the next opening pointing at it. It is clamped on read rather than on write, so
-options that arrive after the value still leave the popup a tab stop instead of
-a dead keyboard.
+Two paths are held, not one. The committed value decides what the trigger reads,
+what is painted chosen and what `name` submits; a separate **browsing** path
+decides which columns exist and where the keyboard is. They move independently —
+hovering or arrowing opens a column without choosing anything — and the browsing
+one is re-seeded from the value on every opening, whichever route opened it:
+`defaultOpen`, a gesture, or a controlled consumer flipping `open` themselves.
+So abandoning a branch does not leave the next opening pointing at it. It is
+clamped on read rather than on write, so options that arrive after the value
+still leave the popup a tab stop instead of a dead keyboard.
 
 The two item states are different facts and both ship. `data-active` is "the
 column beside me holds my children, and the keyboard is here"; `data-selected`
@@ -35,8 +36,10 @@ same-keyed node under another would otherwise paint itself chosen.
 
 Up and Down move within a column, Left and Right between columns, mirrored under
 `dir="rtl"` — read off the DOM, since `dir` is inherited and the browser has
-already resolved it. Enter and Space commit. Escape and Tab are deliberately not
-handled here: the dismissable layer already owns both, and answering them twice
+already resolved it. Enter and Space commit; Tab closes and hands focus back to
+the trigger, so the browser's own Tab carries on from the control rather than
+from a popup portalled to the end of the document. Escape is deliberately not
+handled here: the dismissable layer already owns it, and answering it twice
 fires `onOpenChange` twice for one press. Focus is real DOM focus on a roving tab
 stop rather than `aria-activedescendant`, because the only element that could
 hold focus across every column is the popup container, which is not a composite
@@ -57,4 +60,7 @@ four times over. `hasChildren` also replaces the two inlined copies of the same
 New in `@crosskit-ui/styles`: `cascader.css`. The columns are a plain flex row
 with no direction override, so `direction: rtl` reverses their order for free.
 The popup is deliberately **not** clamped to the trigger's width — a cascader is
-wider than its control by definition.
+wider than its control by definition. The trigger carries `data-clearable` while
+a clear button is on screen: that button is out of flow, so nothing else can
+reserve the room it needs, and without the room it lands on the indicator and
+eats the press meant for it.

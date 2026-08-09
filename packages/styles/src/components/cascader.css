@@ -38,7 +38,26 @@
     padding-block: 0.5625rem;
     font-size: var(--ck-font-size-lg);
   }
-  [data-scope="cascader"][data-part="trigger"]:not([data-disabled]):hover {
+  /* The clear button is `position: absolute` over this box — it cannot be a
+     child of it, since a <button> may not hold another. So the room it needs
+     is a gap here: without it the clear sits exactly on the indicator and
+     intercepts the press, and the arrow of a cascader HOLDING A VALUE cleared
+     it instead of opening the popup. 1rem of icon plus a 0.5rem gap either
+     side. */
+  [data-scope="cascader"][data-part="trigger"][data-clearable] {
+    gap: 2rem;
+  }
+  /* `:not([data-status])`, because a `:hover` that also names the part is
+     (0,4,0) and outranks the (0,3,0) status rules below — an invalid control
+     lost its red border for exactly as long as the pointer was on it. Guarded
+     rather than reordered: source order is not a defence, and the status rules
+     have to be able to sit anywhere in this file.
+
+     A status control therefore has no hover border of its own, deliberately.
+     Giving it one is a second rule saying what this `:not()` already says, and
+     the pair would then have to be kept in step for every status value the prop
+     ever gains — the guard covers them all. */
+  [data-scope="cascader"][data-part="trigger"]:not([data-disabled]):not([data-status]):hover {
     border-color: var(--ck-accent-solid);
   }
   [data-scope="cascader"][data-part="trigger"]:focus-visible {
@@ -98,7 +117,11 @@
     cursor: pointer;
     line-height: 0;
     position: absolute;
-    inset-inline-end: 0.75rem;
+    /* Clear of the indicator, which ends 0.75rem (the trigger's padding) from
+       the edge and is 1rem wide, plus half of the 2rem gap `[data-clearable]`
+       opens up for it. Sitting at the edge instead put it on top of the
+       indicator, where it ate every press meant for the arrow. */
+    inset-inline-end: 2.25rem;
   }
   [data-scope="cascader"][data-part="clear"]:hover {
     color: var(--ck-fg);

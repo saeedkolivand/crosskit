@@ -63,6 +63,21 @@ createRoot(document.getElementById("root")!).render(
       <div id="long" style={{ inlineSize: 220 }}>
         <Cascader options={LONG} />
       </div>
+
+      {/* Closed AND holding a value, so the clear button is on screen next to
+          the indicator. That pair is the whole point of this one: the clear is
+          absolutely positioned over the trigger, and on top of the indicator it
+          eats the press that should open the popup. */}
+      <div id="valued" style={{ inlineSize: 220 }}>
+        <Cascader options={OPTIONS} defaultValue={["zhejiang", "ningbo"]} />
+      </div>
+
+      {/* An invalid control, for the hover specificity claim. `:hover` naming
+          the part outranks a bare `[data-status]`, so this is where the red
+          border does or does not survive the pointer. */}
+      <div id="invalid" style={{ inlineSize: 220 }}>
+        <Cascader options={OPTIONS} status="error" />
+      </div>
     </main>
     {/* The document has to be SCROLLABLE, or "arrowing did not scroll the
         document" is an assertion that cannot fail — the regression it guards is

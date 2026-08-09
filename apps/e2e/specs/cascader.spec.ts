@@ -164,6 +164,60 @@ test("does not repaint the chosen item under the pointer", async ({ page }) => {
   expect(activeBefore).not.toBe(plainFill);
 });
 
+test("keeps the clear button off the trigger's indicator", async ({ page }) => {
+  await load(page, "ltr");
+  const [clear] = await box(page, '#valued [data-scope="cascader"][data-part="clear"]');
+  const [indicator] = await box(page, '#valued [data-scope="cascader"][data-part="indicator"]');
+  // Two boxes on the same row, so "no overlap" is one comparison along the
+  // inline axis. The clear is `position: absolute` over a trigger that has to
+  // open a gap for it; sitting at the edge instead put it exactly on the arrow.
+  expect(clear!.right).toBeLessThanOrEqual(indicator!.left);
+  // And off the label on the other side, which is the half the trigger's own
+  // `gap` buys: the clear is out of flow, so nothing reserves that room for it
+  // and the value text otherwise runs straight under the cross.
+  const [text] = await box(page, '#valued [data-scope="cascader"][data-part="value-text"]');
+  expect(text!.right).toBeLessThanOrEqual(clear!.left);
+
+  // And the consequence, which is the actual defect: the press meant for the
+  // arrow reached the clear, so a cascader HOLDING A VALUE answered a click on
+  // its own arrow by wiping the value instead of opening.
+  const trigger = page.locator('#valued [data-scope="cascader"][data-part="trigger"]');
+  await page.locator('#valued [data-scope="cascader"][data-part="indicator"]').click();
+  await settle(page);
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveText(/Zhejiang/);
+});
+
+test("keeps an invalid control's border under the pointer", async ({ page }) => {
+  await load(page, "ltr");
+  const border = (id: string) =>
+    page
+      .locator(`${id} [data-scope="cascader"][data-part="trigger"]`)
+      .evaluate(el => getComputedStyle(el).borderTopColor);
+
+  // Measured against a PLAIN control in the same document rather than against a
+  // token string, so nothing here has to parse a colour.
+  const restingPlain = await border("#shut");
+  const restingInvalid = await border("#invalid");
+  // Without this the rest of the test holds trivially — "the hover did not
+  // change it" is also true of a border that was never coloured.
+  expect(restingInvalid).not.toBe(restingPlain);
+
+  await page.locator('#shut [data-scope="cascader"][data-part="trigger"]').hover();
+  await settle(page);
+  const hoveredPlain = await border("#shut");
+  expect(hoveredPlain).not.toBe(restingPlain);
+
+  await page.locator('#invalid [data-scope="cascader"][data-part="trigger"]').hover();
+  await settle(page);
+  // A `:hover` that also names the part is (0,4,0) and outranks the (0,3,0)
+  // `[data-status]` rule, so without the `:not([data-status])` guard both of
+  // these are the accent colour and an invalid control loses its red border for
+  // as long as the pointer is on it.
+  expect(await border("#invalid")).not.toBe(hoveredPlain);
+  expect(await border("#invalid")).toBe(restingInvalid);
+});
+
 test("turns the trigger indicator while the popup is open", async ({ page }) => {
   await load(page, "ltr");
   const rotation = (id: string) =>

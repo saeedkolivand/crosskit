@@ -255,6 +255,18 @@ describe("pathNodes", () => {
     expect(pathNodes(TREE, ["docs", "nope", "intro"]).map(n => n.key)).toEqual(["docs"]);
   });
 
+  it("stops when the path outlives the levels, not only when a key is missing", () => {
+    // The other half of the same contract, and a different failure: here every
+    // key EXISTS somewhere, and what runs out is the tree. `changelog` is a
+    // leaf, so the walk steps into an empty level — and `docs` is a ROOT key,
+    // so an implementation that fell back to the root list rather than to the
+    // leaf's (absent) children resolves it and answers two deep.
+    expect(pathNodes(TREE, ["changelog", "docs"]).map(n => n.key)).toEqual(["changelog"]);
+    // And with `guide` — a key that is real one level ABOVE where the walk now
+    // stands — for the same reason.
+    expect(pathNodes(TREE, ["docs", "api", "guide"]).map(n => n.key)).toEqual(["docs", "api"]);
+  });
+
   it("does not search downward for a key that is not at this level", () => {
     expect(pathNodes(TREE, ["intro"])).toEqual([]);
     expect(pathNodes(TREE, [])).toEqual([]);

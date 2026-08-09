@@ -50,6 +50,15 @@ const TWINS: TreeNode[] = [
   { key: "b", title: "B", children: [{ key: "other", title: "B-other" }] },
 ];
 
+/**
+ * A key repeated ACROSS levels rather than across branches, which is the only
+ * fixture that can tell the roving tab stop's two halves apart: with globally
+ * unique keys, `node.key === focusKey` alone already leaves exactly one stop.
+ */
+const NESTED_TWIN: TreeNode[] = [
+  { key: "loop", title: "Loop", children: [{ key: "loop", title: "Loop again" }] },
+];
+
 const trigger = () => screen.getByRole("combobox");
 const panel = () => document.querySelector('[data-scope="cascader"][data-part="content"]');
 const columns = () =>
@@ -57,6 +66,11 @@ const columns = () =>
 const items = () =>
   Array.from(document.querySelectorAll<HTMLElement>('[data-scope="cascader"][data-part="item"]'));
 const item = (name: string) => screen.getByRole("option", { name });
+const clear = () => screen.getByRole("button", { name: /clear/i });
+const hiddenValues = (name: string) =>
+  Array.from(
+    document.querySelectorAll<HTMLInputElement>(`input[type="hidden"][name="${name}"]`)
+  ).map(input => input.value);
 const withAttr = (attribute: string) =>
   items()
     .filter(node => node.hasAttribute(attribute))
@@ -98,6 +112,28 @@ describe("Cascader", () => {
     // children" — for a branch the two agree.
     await user.click(item("Ningbo"));
     await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    // And focus comes back with it, rather than being dropped on <body> with
+    // the column it was in. `choose` no longer restores this itself — the close
+    // handler does, and this is what says so.
+    expect(trigger()).toHaveFocus();
+  });
+
+  it("ignores a click on a disabled option", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    // `changeOnSelect` ON, because `Locked` is a leaf: with it off a leaf and a
+    // branch report differently and the miss would be half-hidden.
+    render(<Cascader options={OPTIONS} changeOnSelect onChange={onChange} />);
+    await openPanel(user);
+    await user.click(item("Jiangsu"));
+    onChange.mockClear();
+    await user.click(item("Locked"));
+    // The stylesheet sets `opacity` and `cursor` and never `pointer-events`, so
+    // the press really does arrive — the guard in `choose` is the only thing
+    // between it and a committed value.
+    expect(onChange).not.toHaveBeenCalled();
+    expect(withAttr("data-active")).toEqual(["Jiangsu"]);
+    expect(panel()).toHaveAttribute("data-state", "open");
   });
 
   it("reports the path AND the nodes it names, resolved positionally", async () => {
@@ -131,14 +167,25 @@ describe("Cascader", () => {
     await openPanel(user);
     await user.click(item("Zhejiang"));
     expect(onChange).toHaveBeenCalledWith(["zhejiang"], [OPTIONS[0]]);
-    // And the popup stays up, because a branch is not the end of the journey.
-    expect(panel()).toBeInTheDocument();
+    // `data-state`, not presence. Presence deliberately OUTLIVES `open` so the
+    // exit animation gets a frame, so a CLOSING popup is still in the document
+    // and `toBeInTheDocument` here could not fail.
+    expect(panel()).toHaveAttribute("data-state", "open");
   });
 
-  it("joins the titles on the trigger with the separator", async () => {
+  it("joins the titles on the trigger with the separator, and leads with none", () => {
     render(<Cascader options={OPTIONS} defaultValue={["zhejiang", "hangzhou", "xihu"]} />);
-    expect(trigger()).toHaveTextContent("Zhejiang / Hangzhou / Xihu");
+    // ANCHORED. `toHaveTextContent` is a substring match, so a separator
+    // emitted before the FIRST segment as well — the natural way to write this
+    // wrong — reads as "/ Zhejiang / …" and slips straight through a bare
+    // string.
+    expect(trigger()).toHaveTextContent(/^Zhejiang \/ Hangzhou \/ Xihu$/);
     expect(trigger()).not.toHaveAttribute("data-empty");
+  });
+
+  it("joins with a separator the consumer chose", () => {
+    render(<Cascader options={OPTIONS} separator=" > " defaultValue={["zhejiang", "ningbo"]} />);
+    expect(trigger()).toHaveTextContent(/^Zhejiang > Ningbo$/);
   });
 
   it("shows the placeholder while empty", () => {
@@ -183,6 +230,29 @@ describe("Cascader", () => {
 
     await openPanel(user);
     // Abandoning a branch must not leave the next opening pointing at it.
+    expect(withAttr("data-active")).toEqual(["Zhejiang", "Ningbo"]);
+  });
+
+  it("seeds the browsing path from a controlled value, not only from defaultValue", () => {
+    // `defaultOpen` reports nothing through `onOpenChange`, so the seed can
+    // only come from the initialiser — and a controlled consumer never writes
+    // `defaultValue`. Reading it there opened this with one column.
+    render(<Cascader options={OPTIONS} value={["zhejiang", "hangzhou"]} defaultOpen />);
+    expect(columns()).toHaveLength(3);
+    expect(withAttr("data-active")).toEqual(["Zhejiang", "Hangzhou"]);
+  });
+
+  it("re-seeds when a controlled `open` is flipped rather than gestured", async () => {
+    const user = userEvent.setup();
+    const view = (open: boolean) => (
+      <Cascader options={OPTIONS} defaultValue={["zhejiang", "ningbo"]} open={open} />
+    );
+    const { rerender } = render(view(true));
+    await user.click(item("Jiangsu"));
+    // Closed and reopened from the PROP. `setOpen` is never called on this
+    // route, so `onOpenChange` never fires and a seed hung off it never runs.
+    rerender(view(false));
+    rerender(view(true));
     expect(withAttr("data-active")).toEqual(["Zhejiang", "Ningbo"]);
   });
 
@@ -258,6 +328,79 @@ describe("Cascader", () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
+  it("steps deeper with Right before anything has been browsed", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} />);
+    trigger().focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement).toBe(item("Zhejiang")));
+    // The empty-path reading again, on the third handler. The columns are
+    // DERIVED from the path, so with nothing browsed there is no column beside
+    // column 0 — asking `columns[focusCol + 1]` rather than asking the focused
+    // node made this key do nothing at all. Every other Right test clicks a row
+    // first, where the path is non-empty and the two readings agree.
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(document.activeElement).toBe(item("Hangzhou")));
+    // Three: the roots, Zhejiang's children, and Hangzhou's — the step lands on
+    // a branch, so the column it opens comes with it. Broken, this stays at one.
+    expect(columns()).toHaveLength(3);
+    expect(withAttr("data-active")).toEqual(["Zhejiang", "Hangzhou"]);
+  });
+
+  it("closes when Tab takes focus out of the popup", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<Cascader options={OPTIONS} onOpenChange={onOpenChange} />);
+    trigger().focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement).toBe(item("Zhejiang")));
+
+    await user.keyboard("{Tab}");
+    // The layer's `focus: true` does not cover this: Tab off the last stop of a
+    // popup portalled to the END of the document lands on nothing at all, fires
+    // no `focusin`, and left the popup open with focus on <body>.
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    // Once for the press, not twice — the reason Escape is left to the layer.
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
+    expect(onOpenChange).toHaveBeenLastCalledWith({ open: false });
+  });
+
+  it("reports each open and each close exactly once", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<Cascader options={OPTIONS} onOpenChange={onOpenChange} />);
+    await openPanel(user);
+    expect(onOpenChange).toHaveBeenCalledWith({ open: true });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    expect(onOpenChange).toHaveBeenLastCalledWith({ open: false });
+    // Escape is answered by the dismissable layer alone. Answering it here as
+    // well is what fires this twice for one press.
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes focus back from the column the popup closed under", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} />);
+    trigger().focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement).toBe(item("Zhejiang")));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    // Unmounting the column focus is in leaves <body> focused and the next Tab
+    // restarting at the top of the page.
+    expect(trigger()).toHaveFocus();
+  });
+
+  it("leaves focus on the trigger when the popup opens", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} />);
+    await openPanel(user);
+    // `takeFocus: false`. The combobox keeps announcing itself, and ArrowDown
+    // is what hands the columns the keyboard.
+    expect(trigger()).toHaveFocus();
+  });
+
   it("does not step out of the first column", async () => {
     const user = userEvent.setup();
     render(<Cascader options={OPTIONS} />);
@@ -285,13 +428,18 @@ describe("Cascader", () => {
     );
   });
 
-  it("keeps one tab stop for the whole popup", async () => {
+  it("keeps one tab stop for the whole popup, even when a key repeats down it", async () => {
     const user = userEvent.setup();
-    render(<Cascader options={OPTIONS} defaultValue={["zhejiang", "ningbo"]} />);
+    // The repeated key is the point. Against a fixture whose keys are globally
+    // unique, `node.key === focusKey` alone already leaves one stop and the
+    // `depth === focusCol` half of the condition cannot be told apart from a
+    // missing one. Here both rows answer to `loop`.
+    render(<Cascader options={NESTED_TWIN} defaultValue={["loop", "loop"]} />);
     await openPanel(user);
+    expect(items()).toHaveLength(2);
     const stops = items().filter(node => node.getAttribute("tabindex") === "0");
     expect(stops).toHaveLength(1);
-    expect(stops[0]).toHaveTextContent("Ningbo");
+    expect(stops[0]).toHaveTextContent("Loop again");
   });
 
   it("hands the columns the keyboard on ArrowDown at the trigger", async () => {
@@ -332,11 +480,38 @@ describe("Cascader", () => {
     render(
       <Cascader options={OPTIONS} defaultValue={["zhejiang", "ningbo"]} onChange={onChange} />
     );
-    await user.click(screen.getByRole("button", { name: /clear/i }));
+    await user.click(clear());
     expect(onChange).toHaveBeenCalledWith([], []);
     // The trigger wrapper owns the click listener, so a missing
     // stopPropagation opens the panel on the way out.
     expect(panel()).not.toBeInTheDocument();
+  });
+
+  it("collapses the open columns when the value is cleared", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} defaultValue={["zhejiang", "ningbo"]} />);
+    await openPanel(user);
+    expect(columns()).toHaveLength(2);
+    // The clear sits inside the trigger wrapper, which the layer excludes, so
+    // the popup is still up afterwards — and the browsing path has to come back
+    // with the value, or it goes on showing columns for a path nothing holds.
+    await user.click(clear());
+    expect(panel()).toHaveAttribute("data-state", "open");
+    expect(columns()).toHaveLength(1);
+    expect(withAttr("data-active")).toEqual([]);
+  });
+
+  it("gives a chevron only to a row that opens another column", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} />);
+    await openPanel(user);
+    await user.click(item("Zhejiang"));
+    // The icon MEANS "this opens another column". The reserved width is what
+    // lines the titles up, and it is the empty span that does that — putting a
+    // chevron in every one of them lies about the tree.
+    expect(item("Hangzhou").querySelector("svg")).not.toBeNull();
+    expect(item("Ningbo").querySelector("svg")).toBeNull();
+    expect(item("Ningbo").querySelector('[data-part="item-indicator"]')).not.toBeNull();
   });
 
   it("submits one hidden input per path segment, even when a segment repeats", () => {
@@ -345,14 +520,23 @@ describe("Cascader", () => {
     ];
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<Cascader options={repeated} name="place" defaultValue={["other", "other"]} />);
-    const inputs = Array.from(
-      document.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="place"]')
-    );
-    expect(inputs.map(input => input.value)).toEqual(["other", "other"]);
+    expect(hiddenValues("place")).toEqual(["other", "other"]);
     // Keyed by index, not by the segment: a repeated segment keyed on itself is
     // a duplicate React key, and React drops one of the two inputs.
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
+  });
+
+  it("submits the committed value, never the path being browsed", async () => {
+    const user = userEvent.setup();
+    render(<Cascader options={OPTIONS} name="place" defaultValue={["zhejiang", "ningbo"]} />);
+    await openPanel(user);
+    // Browsing a BRANCH under the default `changeOnSelect` commits nothing, so
+    // the two paths are genuinely different here. Every reading taken with the
+    // popup shut has them identical and cannot tell the fields apart.
+    await user.click(item("Jiangsu"));
+    expect(withAttr("data-active")).toEqual(["Jiangsu"]);
+    expect(hiddenValues("place")).toEqual(["zhejiang", "ningbo"]);
   });
 
   it("keeps a value that no option resolves clearable, while showing the placeholder", async () => {
@@ -398,6 +582,37 @@ describe("Cascader", () => {
     // zero options in it, while the real listboxes sit inside, is two claims
     // about one popup that disagree.
     expect(panel()).not.toHaveAttribute("role");
+    // Which is exactly why `aria-controls` cannot point at it. It names the
+    // first column, which is a real listbox and is the control's own list.
+    const controls = trigger().getAttribute("aria-controls");
+    expect(document.getElementById(controls!)).toBe(first);
+  });
+
+  it("passes the smaller field props through to the control", async () => {
+    const user = userEvent.setup();
+    const onBlur = vi.fn();
+    render(
+      <Cascader
+        options={OPTIONS}
+        id="place"
+        aria-describedby="hint"
+        aria-invalid
+        allowClear={false}
+        defaultValue={["zhejiang", "ningbo"]}
+        onBlur={onBlur}
+      />
+    );
+    expect(trigger()).toHaveAttribute("id", "place");
+    expect(trigger()).toHaveAttribute("aria-describedby", "hint");
+    // `aria-invalid` on its own, with no `status`. A `status="error"` fixture
+    // reaches only the other half of that `||` and the two coincide there.
+    expect(trigger()).toHaveAttribute("aria-invalid", "true");
+    // A held value AND `allowClear={false}` — with an empty one the button is
+    // absent either way.
+    expect(screen.queryByRole("button", { name: /clear/i })).not.toBeInTheDocument();
+    trigger().focus();
+    await user.tab();
+    expect(onBlur).toHaveBeenCalled();
   });
 
   it("writes booleans as presence attributes and enums raw", async () => {
@@ -428,13 +643,19 @@ describe("Cascader", () => {
   });
 
   it("leaves the icons their own scope", () => {
-    render(<Cascader options={OPTIONS} defaultOpen />);
+    // A value, so the clear's icon renders too and all three call sites are on
+    // screen at once.
+    render(<Cascader options={OPTIONS} defaultValue={["zhejiang"]} defaultOpen />);
+    const svgs = Array.from(document.querySelectorAll("svg"));
+    // Counted, because `for (const svg of [])` passes vacuously and this loop
+    // is the whole guard: the trigger's chevron, the clear's cross, and one
+    // chevron per branch — Zhejiang and Jiangsu in column 0, Hangzhou in
+    // column 1. Ningbo is a leaf and contributes none.
+    expect(svgs).toHaveLength(5);
     // `icon.css` keys every bit of icon presentation off `[data-scope="icon"]`
     // alone, and Icon spreads rest last — so stamping ours on it renders an
     // unsized black SVG.
-    for (const svg of document.querySelectorAll("svg")) {
-      expect(svg).toHaveAttribute("data-scope", "icon");
-    }
+    for (const svg of svgs) expect(svg).toHaveAttribute("data-scope", "icon");
   });
 
   it("does not open while disabled", async () => {
