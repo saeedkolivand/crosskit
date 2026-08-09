@@ -205,12 +205,17 @@ test("draws an image watermark, not its text fallback", async ({ page }) => {
 
   await expect
     .poll(async () => (await backgroundOf(page, "image")).image, {
-      // Short on purpose, and the message is the point. Left at the default the
-      // poll window IS the test timeout, so a build where the image never draws
-      // reported "Test timeout of 30000ms exceeded" from inside the evaluate —
-      // the harness, not the defect. The source is a data URI already in the
-      // document, so the decode has no network in it and a second is orders of
-      // magnitude more than it needs.
+      // The message is what makes the red state readable: without it the only
+      // thing printed is "Timeout Nms exceeded while waiting on the predicate",
+      // which names the harness rather than the defect. Measured against a
+      // build where the image never draws, with the message and no timeout: it
+      // fails in 5.2s and prints both lines, so `expect.poll`'s default window
+      // is the EXPECT timeout — 5000ms, since neither config here sets one —
+      // and not the test timeout.
+      //
+      // 1000 is a speed choice on top of that, not a correctness one. The
+      // source is a data URI already in the document, so the decode has no
+      // network in it and a second is orders of magnitude more than it needs.
       timeout: 1000,
       message: "#image still carries the text-fallback raster: the image never drew over it",
     })
