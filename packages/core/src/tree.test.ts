@@ -5,6 +5,9 @@ import {
   checkedLeaves,
   expandableKeys,
   flattenTree,
+  hasChildren,
+  pathColumns,
+  pathNodes,
   resolveChecks,
   toggleCheck,
   type TreeNode,
@@ -193,5 +196,119 @@ describe("checkedLeaves", () => {
     // A parent key in a form payload is a restatement the server then has to
     // decide whether to trust.
     expect(checkedLeaves(TREE, state.checked)).toEqual(["intro", "setup", "api"]);
+  });
+});
+
+describe("hasChildren", () => {
+  it("takes `isLeaf` over the children a node actually has", () => {
+    // The representative that matters is a declared leaf WITH children. On a
+    // node whose `children` is empty, honouring the flag and ignoring it agree,
+    // so that case asserts nothing about the flag.
+    expect(hasChildren({ key: "declared", isLeaf: true, children: [{ key: "x" }] })).toBe(false);
+    expect(hasChildren({ key: "empty", children: [] })).toBe(false);
+    expect(hasChildren({ key: "none" })).toBe(false);
+    expect(hasChildren({ key: "real", children: [{ key: "x" }] })).toBe(true);
+  });
+});
+
+/**
+ * a
+ *   other
+ *     a-child
+ *   only-here
+ * b
+ *   other
+ *     deep
+ *
+ * Two branches each holding an `other`, because that is the fixture the path
+ * helpers exist for: a key is unique among SIBLINGS, never globally.
+ */
+const TWINS: TreeNode[] = [
+  {
+    key: "a",
+    children: [{ key: "other", children: [{ key: "a-child" }] }, { key: "only-here" }],
+  },
+  { key: "b", children: [{ key: "other", children: [{ key: "deep" }] }] },
+];
+
+const twinUnder = (root: string) =>
+  TWINS.find(n => n.key === root)!.children!.find(n => n.key === "other")!;
+
+describe("pathNodes", () => {
+  it("resolves level by level, not by key against the whole tree", () => {
+    // Node IDENTITY, not the key — both nodes answer "other", so a test reading
+    // `.key` would pass against a flat index too. An `allNodes` map keyed on
+    // `key` returns a's node for both paths, because it comes first in document
+    // order. This assertion is the entire reason the helper exists.
+    expect(pathNodes(TWINS, ["b", "other"])[1]).toBe(twinUnder("b"));
+    expect(pathNodes(TWINS, ["a", "other"])[1]).toBe(twinUnder("a"));
+  });
+
+  it("returns the prefix that resolved and stops there", () => {
+    // The key AFTER the missing one has to be a sibling of the level the walk
+    // is standing on, or this cannot fail. With `["docs","nope","intro"]` a
+    // `continue` also answers `[docs]` — because `intro` is not in docs's
+    // children either, so skipping the gap and stopping at it agree. `api` IS
+    // in docs's children, so a `continue` resolves it against the level the
+    // missing key should have replaced and returns `[docs, api]`.
+    expect(pathNodes(TREE, ["docs", "nope", "api"]).map(n => n.key)).toEqual(["docs"]);
+    expect(pathNodes(TREE, ["docs", "nope", "intro"]).map(n => n.key)).toEqual(["docs"]);
+  });
+
+  it("stops when the path outlives the levels, not only when a key is missing", () => {
+    // The other half of the same contract, and a different failure: here every
+    // key EXISTS somewhere, and what runs out is the tree. `changelog` is a
+    // leaf, so the walk steps into an empty level — and `docs` is a ROOT key,
+    // so an implementation that fell back to the root list rather than to the
+    // leaf's (absent) children resolves it and answers two deep.
+    expect(pathNodes(TREE, ["changelog", "docs"]).map(n => n.key)).toEqual(["changelog"]);
+    // And with `guide` — a key that is real one level ABOVE where the walk now
+    // stands — for the same reason.
+    expect(pathNodes(TREE, ["docs", "api", "guide"]).map(n => n.key)).toEqual(["docs", "api"]);
+  });
+
+  it("does not search downward for a key that is not at this level", () => {
+    expect(pathNodes(TREE, ["intro"])).toEqual([]);
+    expect(pathNodes(TREE, [])).toEqual([]);
+  });
+});
+
+describe("pathColumns", () => {
+  it("gives exactly one column for an empty path", () => {
+    const columns = pathColumns(TREE, []);
+    expect(columns).toHaveLength(1);
+    expect(columns[0]).toBe(TREE);
+  });
+
+  it("adds a column per branch on the path and none for a leaf", () => {
+    // The representative matters: a path ending at a BRANCH cannot distinguish
+    // "one column per resolved node" from "one column per node with children",
+    // because for a branch the two agree. `api` is the leaf that separates them.
+    expect(pathColumns(TREE, ["docs", "guide"]).map(c => c.map(n => n.key))).toEqual([
+      ["docs", "changelog"],
+      ["guide", "api"],
+      ["intro", "setup"],
+    ]);
+    expect(pathColumns(TREE, ["docs", "api"]).map(c => c.map(n => n.key))).toEqual([
+      ["docs", "changelog"],
+      ["guide", "api"],
+    ]);
+  });
+
+  it("descends the node the path named, not the first one sharing its key", () => {
+    // b's `other` holds `deep`; a's holds `a-child`. A flat key lookup opens
+    // the wrong column and the picker shows children that are not there.
+    expect(pathColumns(TWINS, ["b", "other"])[2]).toBe(twinUnder("b").children);
+  });
+
+  it("stops at a declared leaf that still has children", () => {
+    // The lazy-load case: `isLeaf` says there is nothing to descend into, and it
+    // wins over the array — the same rule `flattenTree` follows.
+    const lazy: TreeNode[] = [{ key: "declared", isLeaf: true, children: [{ key: "hidden" }] }];
+    expect(pathColumns(lazy, ["declared"])).toHaveLength(1);
+  });
+
+  it("stops where the path stops resolving", () => {
+    expect(pathColumns(TREE, ["nope", "guide"])).toHaveLength(1);
   });
 });
