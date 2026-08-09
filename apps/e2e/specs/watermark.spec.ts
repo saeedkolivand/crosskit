@@ -203,7 +203,18 @@ test("draws an image watermark, not its text fallback", async ({ page }) => {
   const fallback = await backgroundOf(page, "image-fallback");
   expect(fallback.image).toContain("data:image/png;base64,");
 
-  await expect.poll(async () => (await backgroundOf(page, "image")).image).not.toBe(fallback.image);
+  await expect
+    .poll(async () => (await backgroundOf(page, "image")).image, {
+      // Short on purpose, and the message is the point. Left at the default the
+      // poll window IS the test timeout, so a build where the image never draws
+      // reported "Test timeout of 30000ms exceeded" from inside the evaluate —
+      // the harness, not the defect. The source is a data URI already in the
+      // document, so the decode has no network in it and a second is orders of
+      // magnitude more than it needs.
+      timeout: 1000,
+      message: "#image still carries the text-fallback raster: the image never drew over it",
+    })
+    .not.toBe(fallback.image);
 
   // And the difference is ink rather than geometry: same box, different pixels.
   const drawn = await backgroundOf(page, "image");

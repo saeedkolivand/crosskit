@@ -365,6 +365,16 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
    * losing it — an unlayered rule and a stripped `data-part` — happen after it.
    * Only written when the computed value is still `static`, so a root that the
    * stylesheet already positioned keeps an empty inline `style`.
+   *
+   * The cost, deliberately paid: a consumer who sets `position: static` on the
+   * ROOT after attach no longer keeps it — the root's own attribute changes wake
+   * `write()`, which re-runs this and settles the inline value back to
+   * `relative`. Core wins that one property because a `static` root is the
+   * silent failure above; nothing else is touched, so any other inline property
+   * set after attach survives. Loop-free even when the computed value never
+   * changes — a sheet pinning the root to `static !important` — because this
+   * runs inside `write()`, with the observer disconnected, so the write it
+   * performs is never handed back to it as a record.
    */
   const ensurePositioned = () => {
     if (getComputedStyle(root).position === "static") root.style.position = "relative";

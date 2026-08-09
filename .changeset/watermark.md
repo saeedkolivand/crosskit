@@ -68,4 +68,7 @@ at attach, because the rule is keyed on the root's own
 spread last on purpose, and are deliberately *not* rewritten here. Stripping
 them is allowed; losing the positioning context is not, so the root is watched
 for attribute changes too and the inline value goes in when the stylesheet's
-stops applying.
+stops applying. The consequence to know about: `position` on the root is the one
+property the component takes over — setting the root to `position: static` after
+attach no longer sticks, it is repaired back to `relative`. Every other inline
+property you set afterwards is left alone.
