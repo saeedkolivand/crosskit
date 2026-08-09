@@ -270,6 +270,17 @@ function measureless(
  * watermark, and without `pointer-events` the overlay eats every click in the
  * region it covers. Inline `!important` outranks author `!important` from a
  * stylesheet, so this survives `[data-part="overlay"] { display: none !important }`.
+ *
+ * `visibility` is `inherit`, not `visible`, and that is the whole point of it.
+ * `visibility` INHERITS, and any declaration on an element beats an inherited
+ * value — so `visibility:visible!important` here would also escape an
+ * ANCESTOR's `visibility: hidden` and paint the mark over a region whose
+ * content is correctly hidden (a tab panel kept in the layout, a slide measured
+ * before it is shown). `inherit` keeps the `!important`, so a consumer rule
+ * aimed at the overlay still loses, while the overlay resolves to whatever the
+ * root resolved to and a hidden region stays hidden. Both directions are pinned
+ * in the suite: the ancestor case in watermark.test.ts, the consumer-sheet case
+ * in apps/e2e/specs/watermark.spec.ts.
  */
 export function watermarkStyle(o: ResolvedWatermarkOptions, raster: WatermarkRaster): string {
   const declarations = [
@@ -279,7 +290,7 @@ export function watermarkStyle(o: ResolvedWatermarkOptions, raster: WatermarkRas
     "inset-block:0",
     `z-index:${o.zIndex}`,
     "display:block!important",
-    "visibility:visible!important",
+    "visibility:inherit!important",
     "pointer-events:none!important",
     "background-repeat:repeat",
     `background-size:${raster.tile.width}px ${raster.tile.height}px`,
@@ -342,6 +353,23 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
 
   const observer = new MutationObserver(() => write());
 
+  /**
+   * `position: relative` is also in the stylesheet, but `ck.components` is
+   * deliberately beatable by unlayered consumer CSS, and the rule is keyed on
+   * the root's `data-part` — which is the framework's node, not ours. A
+   * `static` root makes the overlay resolve against some ancestor and cover a
+   * region that is not the protected one; something is still drawn, which is
+   * what makes it a silent compliance failure rather than a visible one.
+   *
+   * Re-checked on every write rather than only at attach, because both ways of
+   * losing it — an unlayered rule and a stripped `data-part` — happen after it.
+   * Only written when the computed value is still `static`, so a root that the
+   * stylesheet already positioned keeps an empty inline `style`.
+   */
+  const ensurePositioned = () => {
+    if (getComputedStyle(root).position === "static") root.style.position = "relative";
+  };
+
   const write = () => {
     if (destroyed) return;
     observer.disconnect();
@@ -353,9 +381,20 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
     }
     for (const [name, value] of attrs) overlay.setAttribute(name, value);
     if (overlay.parentNode !== root) root.appendChild(overlay);
+    ensurePositioned();
 
-    observer.observe(root, { childList: true });
-    observer.observe(overlay, { attributes: true, childList: true });
+    // The root is watched for ATTRIBUTES as well as children. Its own
+    // `data-scope`/`data-part` are the framework's and the consumer's — they
+    // spread last on purpose and are deliberately not rewritten here — but the
+    // stylesheet's `position: relative` is keyed on them, so losing them turns
+    // the computed value back to `static` long after attach. `ensurePositioned`
+    // above is what makes that survivable; without the attribute filter here it
+    // would never re-run.
+    observer.observe(root, { attributes: true, childList: true });
+    // Attributes only. The overlay has no children — nothing writes any and the
+    // repair would not remove any — so watching `childList` on it would fire
+    // and then repair nothing.
+    observer.observe(overlay, { attributes: true });
   };
 
   const paint = (loaded?: HTMLImageElement) => {
@@ -370,13 +409,15 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
     // tainted canvas, which is the difference between falling back to text and
     // losing the raster to a SecurityError.
     next.crossOrigin = "anonymous";
+    // Only `onload`. There is deliberately no `onerror` repaint: `repaint`
+    // paints the text into the image's cell BEFORE the load is even started, so
+    // a load that fails leaves the documented fallback already on screen — an
+    // `onerror` handler calling `paint()` would redraw the identical raster.
     next.onload = () => {
+      // `mine === token` is the whole guard: a slow load for a PREVIOUS image
+      // resolves after a newer `update` and would otherwise repaint over the
+      // current mark with the last user's image.
       if (mine === token && !destroyed) paint(next);
-    };
-    next.onerror = () => {
-      // The mark stays: text is the documented fallback for an image that
-      // cannot be fetched, and a blank compliance overlay is the worst outcome.
-      if (mine === token && !destroyed) paint();
     };
     next.src = src;
     img = next;
@@ -403,13 +444,7 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
     repaint();
   };
 
-  // `position: relative` is also in the stylesheet, but `ck.components` is
-  // deliberately beatable by unlayered consumer CSS — and this is the one
-  // property the observer cannot repair after the fact, because a `static` root
-  // makes the overlay resolve against some ancestor and cover a region that is
-  // not the protected one. Something is still drawn, which is what makes it a
-  // silent compliance failure.
-  if (getComputedStyle(root).position === "static") root.style.position = "relative";
+  ensurePositioned();
   armDpr();
 
   return {
@@ -437,7 +472,6 @@ export function createWatermarkOverlay(root: HTMLElement): WatermarkOverlay {
       media = undefined;
       if (img) {
         img.onload = null;
-        img.onerror = null;
         img = undefined;
       }
       overlay.remove();

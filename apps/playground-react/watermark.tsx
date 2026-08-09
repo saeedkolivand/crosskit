@@ -87,8 +87,15 @@ function Harness() {
         style={box}
       />
 
-      {/* The image path end to end: load, draw, rasterise. */}
+      {/* The image path end to end: load, draw, rasterise — and beside it the
+          control, which is the same 120x64 cell drawn from the same text at the
+          same angle. That is exactly the raster `#image` carries until its load
+          resolves, so "the image drew" is `#image` no longer matching it. The
+          tile SIZE cannot answer that question: it is 120x64 either way,
+          because the cell is keyed on an image having been asked for rather
+          than on one having arrived. */}
       <Watermark id="image" image={RED_DOT} content="fallback" style={box} />
+      <Watermark id="image-fallback" content="fallback" width={120} height={64} style={box} />
     </main>
   );
 }

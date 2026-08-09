@@ -31,6 +31,14 @@ record and would be unrepairable by construction. `display`, `visibility` and
 because losing any of the three is a defect rather than a cosmetic change — the
 third one would make the overlay eat every click in the region it covers.
 
+The `visibility` value is `inherit`, not `visible`. `visibility` inherits, and
+any declaration on an element beats an inherited value, so `visible` would also
+escape an *ancestor's* `visibility: hidden` and paint the mark across a region
+whose content is correctly hidden — a tab panel kept in the layout, a slide
+measured before it is shown. `inherit` keeps the `!important`, so a consumer
+rule aimed at the overlay still loses, while the overlay resolves to whatever
+the root resolved to.
+
 `Watermark` takes `content` (a string or one entry per line), `image`, `width`,
 `height`, `rotate`, `zIndex`, `gap`, `offset` and `font`. The cell defaults to
 the measured text, or 120x64 for an image, and the repeating tile is sized from
@@ -51,8 +59,13 @@ every parent render, and one that omits them goes stale, which on a per-user
 mark means showing the previous user's name.
 
 New in `@crosskit-ui/styles`: `watermark.css`, two declarations on the root and
-nothing at all for the overlay. `position: relative` is also written inline when
-the root's computed position is still `static`, since `ck.components` is
-deliberately beatable and this is the one property the observer cannot repair
-after the fact — an overlay that resolved against the wrong ancestor still looks
-like a watermark.
+nothing at all for the overlay. `position: relative` is also written inline
+whenever the root's computed position is still `static`, since `ck.components`
+is deliberately beatable and an overlay that resolved against the wrong ancestor
+still looks like a watermark. That check runs on every repair rather than only
+at attach, because the rule is keyed on the root's own
+`data-scope`/`data-part` — which belong to the framework and to the consumer,
+spread last on purpose, and are deliberately *not* rewritten here. Stripping
+them is allowed; losing the positioning context is not, so the root is watched
+for attribute changes too and the inline value goes in when the stylesheet's
+stops applying.

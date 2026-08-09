@@ -127,6 +127,12 @@ test("outranks a consumer stylesheet that tries to hide it", async ({ page }) =>
   // unlayered sheet, which beats everything in `ck.components` regardless of
   // specificity. Only inline `!important` outranks it — which is the reason the
   // overlay's geometry is a style attribute rather than a rule.
+  //
+  // `visibility` resolves to `visible` here through `inherit`, not through a
+  // literal `visible`: the root is visible, so the overlay is. The other
+  // direction — an ancestor that is genuinely hidden — is in
+  // packages/core/src/watermark.test.ts, where jsdom resolves inheritance
+  // correctly and no layout is needed to see it.
   const resolved = await overlayOf(page, "hidden-mark").evaluate(el => {
     const style = getComputedStyle(el);
     return { display: style.display, visibility: style.visibility, events: style.pointerEvents };
@@ -184,14 +190,24 @@ test("rasterises a real tiling image", async ({ page }) => {
 
 test("draws an image watermark, not its text fallback", async ({ page }) => {
   await page.goto("/watermark.html");
-  const background = await backgroundOf(page, "image");
-  expect(background.image).toContain("data:image/png;base64,");
-  // The image cell is 120x64 before rotation, which no measured text run of
-  // "fallback" at 16px produces — so this distinguishes the image path from the
-  // fallback that would replace it if the load never resolved.
-  const [tileWidth, tileHeight] = background.size.split(" ").map(parseFloat);
-  expect(tileWidth).toBeGreaterThan(200);
-  expect(tileHeight).toBeGreaterThan(140);
+
+  // `#image-fallback` is the control, and it is the whole test: the same 120x64
+  // cell, the same text, the same angle — which is byte for byte the raster
+  // `#image` carries from the moment it is created until its load resolves. So
+  // "the image drew" is "`#image` stopped matching it".
+  //
+  // Neither the tile size nor "it has a data URI" can answer that. Both are
+  // identical on a build where the image never loads at all, because the cell
+  // is keyed on an image having been ASKED for rather than on one arriving —
+  // which is what left this test invariant to the thing it names.
+  const fallback = await backgroundOf(page, "image-fallback");
+  expect(fallback.image).toContain("data:image/png;base64,");
+
+  await expect.poll(async () => (await backgroundOf(page, "image")).image).not.toBe(fallback.image);
+
+  // And the difference is ink rather than geometry: same box, different pixels.
+  const drawn = await backgroundOf(page, "image");
+  expect(drawn.size).toBe(fallback.size);
 });
 
 test("does not clip a rotated mark at the tile edge", async ({ page }) => {

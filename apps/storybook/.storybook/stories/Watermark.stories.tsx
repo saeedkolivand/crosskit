@@ -47,9 +47,6 @@ export const Styled: Story = {
       style={page}
     >
       <p>
-        {/* "light" is not a CSS font-weight; core maps it to 300 rather than
-            passing it through, because one invalid token makes canvas drop the
-            entire font and silently draw 10px sans-serif. */}
         Colour, size, weight and angle are all props — the overlay itself is not styleable from CSS,
         because anything a stylesheet changes on it is restored.
       </p>

@@ -83,6 +83,48 @@ function recordingCanvas(options: { measure?: number; dataUrl?: string | Error }
   return { trace, getContext };
 }
 
+/**
+ * Every `new Image()` the controller makes, in order.
+ *
+ * Nothing ever loads in jsdom — assigning `src` fetches nothing and no event is
+ * ever fired — so the load path is only reachable by holding the elements and
+ * dispatching the events by hand.
+ */
+function recordingImages() {
+  const created: HTMLImageElement[] = [];
+  const Native = window.Image;
+  vi.stubGlobal(
+    "Image",
+    class extends Native {
+      constructor() {
+        super();
+        created.push(this);
+      }
+    }
+  );
+  return created;
+}
+
+/** Every `matchMedia` query, with a way to fire it. jsdom does not implement it. */
+function recordingMedia() {
+  const queries: { query: string; released: number; fire: () => void }[] = [];
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const listeners = new Set<() => void>();
+    const entry = { query, released: 0, fire: () => listeners.forEach(listener => listener()) };
+    queries.push(entry);
+    return {
+      media: query,
+      matches: false,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => {
+        entry.released++;
+        listeners.delete(fn);
+      },
+    } as unknown as MediaQueryList;
+  });
+  return queries;
+}
+
 const measured = (options: WatermarkOptions, width: number, height: number): MeasuredWatermark => ({
   ...resolveWatermark(options),
   width,
@@ -91,6 +133,7 @@ const measured = (options: WatermarkOptions, width: number, height: number): Mea
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("watermarkFontSpec", () => {
@@ -129,6 +172,21 @@ describe("watermarkTile", () => {
     const tile = watermarkTile(measured({ rotate: 30, gap: [10, 20] }, 200, 50));
     expect(tile.width).toBe(209); // ceil(200·cos30 + 50·sin30 + 10)
     expect(tile.height).toBe(164); // ceil(200·sin30 + 50·cos30 + 20)
+  });
+
+  it("keeps the box positive past a quarter turn, where cosine goes negative", () => {
+    // Every other case here is inside +-90, where `cos` is already positive and
+    // the `Math.abs` around it is invisible. Past 90 it is the only thing
+    // between the formula and a NEGATIVE tile: at 150 degrees an unguarded
+    // `cos` gives 200·(-0.866) + 50·0.5 + 10, which is -138.
+    // |cos150| = cos30 and |sin150| = sin30, so the answer is the 30-degree one.
+    expect(watermarkTile(measured({ rotate: 150, gap: [10, 20] }, 200, 50))).toEqual({
+      width: 209,
+      height: 164,
+    });
+    expect(watermarkTile(measured({ rotate: -170, gap: [0, 0] }, 200, 50)).width).toBeGreaterThan(
+      0
+    );
   });
 
   it("is the plain mark plus the gap when nothing is rotated", () => {
@@ -216,6 +274,33 @@ describe("drawWatermark", () => {
     expect(raster.tile.width).toBeGreaterThan(200);
   });
 
+  describe("with no context, where the cell cannot be measured", () => {
+    // The case above hands in BOTH `width` and `height`, so every branch of the
+    // measureless estimate is short-circuited and none of its arithmetic runs.
+    // These do not.
+    it("estimates the cell from the longest line and the font size", () => {
+      // 5 chars x 10px x 0.6, and 2 lines x (10 x 1.2). Deliberately different
+      // numbers on the two axes: with 4 chars at 20px both come out 48, and a
+      // swapped width/height passes.
+      const raster = drawWatermark(
+        resolveWatermark({ content: ["abcde", "ab"], font: { fontSize: 10 } })
+      );
+      expect(raster.mark).toEqual({ width: 30, height: 24 });
+    });
+
+    it("uses the image cell for an image, whether or not it ever loads", () => {
+      const raster = drawWatermark(resolveWatermark({ image: "x.png", content: "fallback" }));
+      expect(raster.mark).toEqual({ width: 120, height: 64 });
+    });
+
+    it("still estimates the axis that was not given", () => {
+      const raster = drawWatermark(
+        resolveWatermark({ content: ["abcde", "ab"], width: 200, font: { fontSize: 10 } })
+      );
+      expect(raster.mark).toEqual({ width: 200, height: 24 });
+    });
+  });
+
   it("survives a tainted canvas rather than taking the whole draw down", () => {
     // A cross-origin image makes `toDataURL` throw SecurityError.
     recordingCanvas({ dataUrl: new Error("SecurityError") });
@@ -232,7 +317,7 @@ describe("watermarkStyle", () => {
   it("builds one deterministic declaration string", () => {
     expect(watermarkStyle(resolveWatermark({}), raster)).toBe(
       "position:absolute;inset-inline:0;inset-block:0;z-index:9;" +
-        "display:block!important;visibility:visible!important;pointer-events:none!important;" +
+        "display:block!important;visibility:inherit!important;pointer-events:none!important;" +
         "background-repeat:repeat;background-size:240px 164px;background-position:50px 50px;" +
         'background-image:url("data:image/png;base64,AAAA")'
     );
@@ -383,6 +468,150 @@ describe("createWatermarkOverlay", () => {
     overlay.update({ content: ["a", "c"], gap: [10, 10], offset: [5, 5] });
     expect(getContext.mock.calls.length).toBeGreaterThan(drawn);
     overlay.destroy();
+  });
+
+  it("re-establishes the positioning context when the root loses its part", async () => {
+    // watermark.css, as far as this matters: the rule is keyed on the root's
+    // `data-part`, which is the framework's attribute and the consumer's to
+    // override — so it can go at any time, long after attach.
+    const sheet = document.createElement("style");
+    sheet.textContent = '[data-scope="watermark"][data-part="root"]{position:relative}';
+    document.head.appendChild(sheet);
+
+    const root = mount();
+    root.setAttribute("data-scope", "watermark");
+    root.setAttribute("data-part", "root");
+    const overlay = createWatermarkOverlay(root);
+    overlay.update({ content: "x" });
+
+    // The stylesheet did it, not the fallback. Without this half the test
+    // passes on a build that writes the inline value unconditionally, which is
+    // a different component.
+    expect(root.style.position).toBe("");
+
+    root.removeAttribute("data-part");
+    expect(getComputedStyle(root).position).toBe("static");
+
+    await settle();
+    // An absolute overlay in a static root resolves against some ancestor and
+    // covers a region that is not the protected one — while still drawing a
+    // watermark, which is what makes it silent.
+    expect(root.style.position).toBe("relative");
+    expect(getComputedStyle(root).position).toBe("relative");
+
+    overlay.destroy();
+    sheet.remove();
+  });
+
+  it("goes hidden with an ancestor that is hidden, rather than painting over it", () => {
+    // The overlay's `visibility` carries `!important`, which beats a consumer
+    // rule aimed at the overlay — but `visibility` also INHERITS, and any
+    // declaration on an element beats an inherited value. So `visible` here
+    // would escape an ancestor's `visibility: hidden` and draw the mark across
+    // a region whose content is correctly hidden. `inherit` keeps the
+    // `!important` and resolves to the root's own answer instead.
+    const outer = document.createElement("div");
+    outer.style.visibility = "hidden";
+    document.body.appendChild(outer);
+    const root = document.createElement("div");
+    outer.appendChild(root);
+
+    const overlay = createWatermarkOverlay(root);
+    overlay.update({ content: "x" });
+    expect(getComputedStyle(overlayIn(root)!).visibility).toBe("hidden");
+
+    // The control, and the reason this is not simply "drop the declaration":
+    // with the ancestor visible the overlay is too, so what is asserted above
+    // is inheritance and not a mark that never shows at all.
+    outer.style.visibility = "visible";
+    expect(getComputedStyle(overlayIn(root)!).visibility).toBe("visible");
+
+    overlay.destroy();
+    outer.remove();
+  });
+
+  it("loads an image anonymously, so a missing CORS header fails cleanly", () => {
+    // Without it the image still draws and `toDataURL` then throws
+    // SecurityError on the tainted canvas — the overlay loses its background
+    // entirely instead of falling back to the text.
+    const root = mount();
+    const created = recordingImages();
+    const overlay = createWatermarkOverlay(root);
+    overlay.update({ image: "https://cdn.example.test/mark.png", content: "fallback" });
+
+    expect(created).toHaveLength(1);
+    expect(created[0]!.crossOrigin).toBe("anonymous");
+    expect(created[0]!.src).toBe("https://cdn.example.test/mark.png");
+    overlay.destroy();
+  });
+
+  it("has the text fallback on screen before the load is even started", () => {
+    // Which is why there is no `onerror` handler to test: the raster an error
+    // would repaint is the one already written here, drawn into the image's
+    // cell. A load that fails changes nothing, so nothing has to happen.
+    const root = mount();
+    const { trace } = recordingCanvas();
+    const created = recordingImages();
+    const overlay = createWatermarkOverlay(root);
+    overlay.update({ image: "x.png", content: "fallback" });
+
+    expect(trace).toContain("fillText(fallback,0,0)");
+    expect(overlayIn(root)!.getAttribute("style")).toContain("background-image:url(");
+
+    const before = overlayIn(root)!.getAttribute("style");
+    created[0]!.dispatchEvent(new Event("error"));
+    expect(overlayIn(root)!.getAttribute("style")).toBe(before);
+    overlay.destroy();
+  });
+
+  it("ignores a slow load for an image that is no longer the current one", () => {
+    const root = mount();
+    const { getContext } = recordingCanvas();
+    const created = recordingImages();
+    const overlay = createWatermarkOverlay(root);
+
+    overlay.update({ image: "old.png", content: "x" });
+    overlay.update({ image: "new.png", content: "x" });
+    const drawn = getContext.mock.calls.length;
+
+    // The previous user's image, arriving after the mark has already changed
+    // hands. Repainting it is the failure the token exists for.
+    created[0]!.dispatchEvent(new Event("load"));
+    expect(getContext.mock.calls.length).toBe(drawn);
+
+    // The control, without which the test above passes on a build where NO
+    // load ever repaints.
+    created[1]!.dispatchEvent(new Event("load"));
+    expect(getContext.mock.calls.length).toBeGreaterThan(drawn);
+    overlay.destroy();
+  });
+
+  it("re-rasterises for a new device pixel ratio and releases the old query", () => {
+    // Dragging the window to a display with another density, or zooming the
+    // page. A raster drawn for the old ratio stays on screen and is visibly
+    // blurry — the mark is the one thing on the page that cannot be reloaded
+    // away, because nothing re-renders.
+    vi.stubGlobal("devicePixelRatio", 1);
+    const media = recordingMedia();
+    const root = mount();
+    const { getContext } = recordingCanvas();
+    const overlay = createWatermarkOverlay(root);
+    overlay.update({ content: "x" });
+    const drawn = getContext.mock.calls.length;
+
+    expect(media.map(entry => entry.query)).toEqual(["(resolution: 1dppx)"]);
+
+    vi.stubGlobal("devicePixelRatio", 2);
+    media[0]!.fire();
+
+    expect(getContext.mock.calls.length).toBeGreaterThan(drawn);
+    // A `(resolution: 1dppx)` query never fires again once it is false, so a
+    // repaint that did not re-arm is a repaint that happens exactly once.
+    expect(media[1]!.query).toBe("(resolution: 2dppx)");
+    expect(media[0]!.released).toBe(1);
+
+    overlay.destroy();
+    expect(media[1]!.released).toBe(1);
   });
 
   it("is safe to destroy twice, which is what StrictMode does", async () => {

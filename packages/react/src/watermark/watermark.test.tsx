@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { createRef, StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Watermark } from "./watermark";
@@ -39,10 +39,40 @@ describe("Watermark", () => {
     expect(root()).toHaveClass("card");
   });
 
-  it("spreads consumer attributes last", () => {
-    render(<Watermark content="x" id="wm" data-testid="wm" style={{ inlineSize: 300 }} />);
-    expect(root()).toHaveAttribute("id", "wm");
-    expect(root()!.style.inlineSize).toBe("300px");
+  it("spreads consumer attributes last, so one of ours can be overridden", () => {
+    // `id` and `style` alone cannot fail: the component never sets either, so
+    // they land on the root whichever side of `{...rest}` the spread is on. The
+    // only representative where "last" and "first" DIFFER is an attribute the
+    // component writes itself — a composing component stamping its own
+    // `data-part` on this root is exactly the case the rule exists for.
+    render(<Watermark content="x" id="wm" data-part="host" style={{ inlineSize: 300 }} />);
+    const node = document.querySelector<HTMLElement>('[data-scope="watermark"][data-part="host"]');
+    expect(node).not.toBeNull();
+    expect(node).toHaveAttribute("id", "wm");
+    expect(node!.style.inlineSize).toBe("300px");
+  });
+
+  it("forwards the root to a consumer's ref, in both shapes", () => {
+    const object = createRef<HTMLDivElement>();
+    const view = render(<Watermark content="x" ref={object} />);
+    expect(object.current).toBe(root());
+    view.unmount();
+
+    const calls: (HTMLDivElement | null)[] = [];
+    render(
+      <Watermark
+        content="x"
+        ref={node => {
+          calls.push(node);
+        }}
+      />
+    );
+    // Both branches, because the root also has to reach the controller: the
+    // component keeps its own `rootRef` alongside whatever the consumer passed,
+    // and a forwarding that replaced rather than duplicated it would leave
+    // `createWatermarkOverlay` with null.
+    expect(calls[0]).toBe(root());
+    expect(overlay()).toHaveLength(1);
   });
 
   it("carries no state or boolean attributes at all", () => {
@@ -80,11 +110,26 @@ describe("Watermark", () => {
     expect(overlay()).toHaveLength(1);
   });
 
-  it("takes the overlay with it on unmount", () => {
+  it("tears the controller down on unmount, not just the subtree React owns", async () => {
     const view = render(<Watermark content="x" />);
+    const node = root()!;
     expect(overlay()).toHaveLength(1);
+
     view.unmount();
-    expect(overlay()).toHaveLength(0);
+
+    // Asserted against the DETACHED root rather than against `document`:
+    // React takes the whole subtree out either way, so a document-wide count
+    // is zero even on a build whose cleanup never calls `destroy()`. What the
+    // root it left behind still contains is the only thing that separates them.
+    expect(node.querySelector('[data-part="overlay"]')).toBeNull();
+
+    // And the observer is genuinely released. A MutationObserver keeps firing
+    // on a node that has left the document, so a controller that was never
+    // destroyed answers this attribute change by writing the overlay straight
+    // back in — leaking the observer, and with it the root and its raster.
+    node.setAttribute("data-probe", "");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(node.querySelector('[data-part="overlay"]')).toBeNull();
   });
 
   it("does not redraw when a re-render only changes array identity", () => {

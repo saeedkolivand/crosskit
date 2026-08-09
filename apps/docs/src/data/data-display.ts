@@ -207,7 +207,13 @@ export const dataDisplay: ComponentDoc[] = [
         type: "number",
         description: "Lines x line-height when omitted for text; 64 for an image.",
       },
-      { name: "rotate", type: "number", default: "-22", description: "Degrees, clockwise." },
+      {
+        name: "rotate",
+        reactFirst: true,
+        type: "number",
+        default: "-22",
+        description: "Degrees, clockwise.",
+      },
       {
         name: "zIndex",
         reactFirst: true,
