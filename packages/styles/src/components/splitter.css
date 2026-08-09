@@ -1,0 +1,164 @@
+/* Splitter — resizable panes with a draggable bar between them. */
+@layer ck.components {
+  [data-scope="splitter"][data-part="root"] {
+    display: flex;
+    /* All three only bite when the root is NOT a block-level box in a block
+       container — i.e. when a consumer makes it a flex or grid ITEM, which is
+       the ordinary way a splitter sits in a page shell.
+
+       The panels' own `min-inline-size: 0` does NOT make these redundant. That
+       declaration sets each PANEL's floor; it does not zero the panel's
+       min-content CONTRIBUTION to the root's intrinsic size, so the root keeps
+       an automatic minimum size of its widest child's min-content and refuses
+       to shrink below it. `min-block-size: 0` is the same statement on the
+       other axis.
+
+       Measured, in a 600px parent beside a rigid 100px sibling, with a 900px
+       child in one panel — the numbers matter because the two inline
+       declarations partly mask each other and it is easy to credit the wrong
+       one:
+
+         parent   both present   no min-inline-size   neither
+         flex     500            600                  916
+         grid     500            916                  916
+
+       Grid is the honest reading: the automatic minimum is uncapped there, so
+       a `1fr` track is pinned open at 916px and the whole grid overflows its
+       600px. Flex caps that minimum at min(specified size suggestion, content
+       size suggestion), and `inline-size: 100%` is what supplies the specified
+       half — which is why deleting the min alone still reads 600 in a flex row
+       (the root eating the sibling's 100px) rather than the full 916.
+
+       `inline-size: 100%` earns its keep on the other end of the range: a flex
+       item does not grow to fill its parent, so with SMALL content the root
+       sizes to "a"+bar+"b" and measures 23.1px in that same 600px row. No
+       minimum can produce the 500 instead.
+
+       A splitter that is a block child of a BLOCK parent cannot tell any of
+       this apart, which is why the pinning fixtures are flex/grid items. */
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
+  }
+  [data-scope="splitter"][data-part="root"][data-orientation="vertical"] {
+    flex-direction: column;
+    /* A FALLBACK height, not a height. Panels are `flex-basis: 0`, so in an
+       auto-height parent every one of them resolves to zero and the whole
+       component renders invisibly with no error anywhere — but a parent that
+       already has a height is the ordinary case, and 12rem as a definite size
+       would ignore it and render 192px inside a 600px box.
+
+       `block-size: 100%` resolves against a definite parent and resolves to
+       `auto` against an auto-height one, which is exactly the split needed: the
+       min only bites in the second case.
+
+       This `min-block-size` beats the base rule's `min-block-size: 0` on
+       specificity — (0,3,0) against (0,2,0) — not on source order, so moving
+       either rule cannot swap them. */
+    block-size: 100%;
+    min-block-size: 12rem;
+  }
+  /* Only while dragging, so ordinary selection still works — a drag across two
+     panels otherwise selects every word between them. */
+  [data-scope="splitter"][data-part="root"][data-dragging] {
+    user-select: none;
+  }
+
+  [data-scope="splitter"][data-part="panel"] {
+    /* The percentage lives in `flex-grow` against a ZERO basis, so the bars
+       claim their own size first and the panels divide what is genuinely left.
+       In `flex-basis` it would need `calc(33% - Npx)` with N derived from the
+       bar count, and be wrong the moment `--ck-splitter-bar-size` changes. It is
+       also why a container resize needs no JavaScript: flexbox re-divides the
+       ratio itself. */
+    flex: var(--ck-splitter-size, 1) 1 0;
+    min-inline-size: 0;
+    min-block-size: 0;
+    /* Clips without becoming a containing block. `contain: paint` is the
+       plausible optimisation here and it would capture every `position: fixed`
+       popup a consumer renders inside a panel. */
+    overflow: hidden;
+  }
+
+  [data-scope="splitter"][data-part="bar"] {
+    position: relative;
+    flex: 0 0 var(--ck-splitter-bar-size, 0.5rem);
+    /* Without this the browser claims the drag as a scroll gesture before the
+       pointer handlers ever see it, on every touch device. */
+    touch-action: none;
+    cursor: col-resize;
+  }
+  /* The frozen rule is written FIRST on purpose, so source order is the WEAKER
+     statement here and `:not([data-disabled])` below is the load-bearing one.
+
+     On a frozen vertical bar both rules would match. Unguarded they are both
+     (0,3,0) — three attribute selectors each — so the winner would be whichever
+     sits lower in this file, and with this one first that is the row-resize
+     rule: a frozen bar advertising itself as a resize handle. The `:not()` is
+     the only thing preventing it. Written the other way round the guard would
+     be redundant with the ordering and could be deleted with every test still
+     green, which is exactly how a guard rots.
+
+     Mutual exclusion settles the tie wherever the rules end up; raising one
+     side's specificity would only re-decide the same tie, and re-decide it
+     again the next time a third state selector is added. */
+  [data-scope="splitter"][data-part="bar"][data-disabled] {
+    cursor: default;
+  }
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]:not([data-disabled]) {
+    cursor: row-resize;
+  }
+
+  /* The visible seam is generated content on the bar, so there is one node per
+     bar and the whole ~0.5rem of it is the hit area. Centred with a negative
+     logical margin rather than `translate`, which is physical whatever the
+     offset property beside it is and would need an RTL mirror the bar's known
+     size makes unnecessary. */
+  [data-scope="splitter"][data-part="bar"]::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 50%;
+    inline-size: 1px;
+    margin-inline-start: -0.5px;
+    background: var(--ck-border);
+  }
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]::before {
+    inset-inline: 0;
+    inset-block-start: 50%;
+    block-size: 1px;
+    margin-block-start: -0.5px;
+    inline-size: auto;
+    margin-inline-start: 0;
+  }
+
+  /* Guarded rather than left to source order. A bare `:hover` here would be
+     (0,3,1) — two attributes plus `:hover`, plus the pseudo-element — and the
+     `[data-active]` rule below is (0,3,1) as well: three attributes and the
+     pseudo-element. An exact tie, so the only thing separating them is that the
+     active rule happens to be written second.
+
+     Both match for most of a drag, because the pointer is usually over the bar
+     it is dragging. Move either rule past the other — or add a third state rule
+     between them — and a bar being dragged repaints in the hover colour instead
+     of the active one. `:not([data-active])` makes the two mutually exclusive,
+     which no reordering can undo. `:not([data-disabled])` is not a cascade
+     question at all — a bar that cannot move must not light up under the
+     pointer as though it could. */
+  [data-scope="splitter"][data-part="bar"]:hover:not([data-active]):not([data-disabled])::before {
+    background: var(--ck-border-hover);
+  }
+  [data-scope="splitter"][data-part="bar"][data-active]::before {
+    background: var(--ck-accent-solid);
+  }
+
+  [data-scope="splitter"][data-part="bar"]:focus-visible {
+    outline: 2px solid var(--ck-ring);
+    /* Drawn INSIDE the bar. An outline is painted outside the border box, and
+       the bar is 8px wide with an `overflow: hidden` panel hard against each
+       edge — at the default offset of 0 the ring lands on the panels, which
+       clip it, and the focused bar shows two clipped slivers instead of a
+       ring. A negative offset is the only way to keep it in the 8px it has. */
+    outline-offset: -2px;
+  }
+}

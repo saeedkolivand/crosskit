@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CrossKit — cascader harness</title>
+  </head>
+  <body>
+    <!-- What jsdom cannot answer about a cascader.
+
+         Column ORDER is the inline axis, and it is the whole RTL claim: the
+         columns are a plain flex row with no direction override, so `direction`
+         reverses them for free. Every rect is 0x0 in jsdom, so the order, the
+         divider's edge, the popup not being clamped to its trigger's width, the
+         per-column scrolling and the reserved indicator width are all
+         unassertable there. So is the specificity guard on the hover rule,
+         because jsdom has no :hover at all. -->
+    <div id="root"></div>
+    <script type="module" src="/cascader.tsx"></script>
+  </body>
+</html>

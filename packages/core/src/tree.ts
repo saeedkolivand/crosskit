@@ -37,6 +37,17 @@ export interface FlatNode {
 }
 
 /**
+ * Whether a node has children to descend into.
+ *
+ * `isLeaf` wins over the children a node actually has: a node declared a leaf
+ * shows no expander and opens no column even if something handed it an empty —
+ * or a populated — `children` array, which is what a lazy-loading caller does
+ * before the load.
+ */
+export const hasChildren = (node: TreeNode): boolean =>
+  node.isLeaf !== true && (node.children?.length ?? 0) > 0;
+
+/**
  * The nodes a keyboard can reach, in the order it reaches them.
  *
  * A collapsed node's descendants are absent entirely rather than marked hidden:
@@ -48,10 +59,7 @@ export function flattenTree(nodes: TreeNode[], expanded: ReadonlySet<string>): F
 
   const walk = (list: TreeNode[], depth: number, parents: string[]) => {
     for (const node of list) {
-      // `isLeaf` wins: a node declared a leaf shows no expander even if
-      // something handed it an empty `children` array, which is what a
-      // lazy-loading caller does before the load.
-      const expandable = node.isLeaf !== true && (node.children?.length ?? 0) > 0;
+      const expandable = hasChildren(node);
       const isOpen = expandable && expanded.has(node.key);
       flat.push({ node, key: node.key, depth, parents, expandable, expanded: isOpen });
       if (isOpen) walk(node.children!, depth + 1, [...parents, node.key]);
@@ -78,8 +86,53 @@ export function allNodes(nodes: TreeNode[]): TreeNode[] {
 /** Keys of every node that can be expanded, for an expand-all control. */
 export const expandableKeys = (nodes: TreeNode[]): string[] =>
   allNodes(nodes)
-    .filter(node => node.isLeaf !== true && (node.children?.length ?? 0) > 0)
+    .filter(hasChildren)
     .map(node => node.key);
+
+/**
+ * The nodes a path names, nearest last.
+ *
+ * Resolved level by level, NOT by key against the whole tree. A path is an
+ * identity in its own right, so a key only has to be unique among SIBLINGS —
+ * two branches each holding an "other" or a "new" is the ordinary case, and an
+ * `allNodes` index keyed on `key` returns whichever came first in document
+ * order rather than the one the path actually named.
+ *
+ * Stops at the first key the level does not hold and returns the prefix that
+ * did resolve, so a value that arrived before its `options` — an async load, or
+ * a controlled consumer — degrades to a shorter path instead of throwing away
+ * the part that is still true, or throwing.
+ */
+export function pathNodes(nodes: TreeNode[], path: readonly string[]): TreeNode[] {
+  const out: TreeNode[] = [];
+  let level = nodes;
+  for (const key of path) {
+    const node = level.find(candidate => candidate.key === key);
+    if (!node) break;
+    out.push(node);
+    level = node.children ?? [];
+  }
+  return out;
+}
+
+/**
+ * One column per level: the roots, then the children of each node on the path.
+ *
+ * The other question from the one `flattenTree` answers. Flattening asks "what
+ * can the keyboard reach in a vertical list"; this asks "what is beside what",
+ * and a column-per-level picker never flattens at all.
+ *
+ * The last column has no successor once its node is a leaf, which is what makes
+ * the column count the depth REACHED rather than the depth available.
+ */
+export function pathColumns(nodes: TreeNode[], path: readonly string[]): TreeNode[][] {
+  const columns: TreeNode[][] = [nodes];
+  for (const node of pathNodes(nodes, path)) {
+    if (!hasChildren(node)) break;
+    columns.push(node.children!);
+  }
+  return columns;
+}
 
 /**
  * A node's own descendants that participate in checking.

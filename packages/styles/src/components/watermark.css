@@ -1,0 +1,27 @@
+/* Watermark.
+
+   Two declarations, and nothing at all for the overlay — its entire geometry is
+   written inline by `createWatermarkOverlay` in @crosskit-ui/core. That is not a
+   style preference: a MutationObserver cannot see a stylesheet, so a rule in
+   this file suppressed by an unlayered consumer sheet produces no mutation
+   record and is unrepairable by construction. Inline is what makes the
+   guarantee enforceable.
+
+   There is no hover state and no selected state here, so none of the
+   `:hover` / `[data-selected]` specificity trap applies — worth saying, so a
+   reviewer does not go looking for the guard that is missing. */
+@layer ck.components {
+  [data-scope="watermark"][data-part="root"] {
+    /* Stated, because an Angular root can be a custom element and those default
+       to `display: inline` — an inline root is not a box a full-region overlay
+       can fill. */
+    display: block;
+    /* An absolutely-positioned overlay inside a `static` root resolves against
+       the nearest positioned ancestor instead, and covers a region that is not
+       the protected one. Something is still drawn, which is what makes it a
+       silent failure. `ck.components` is deliberately beatable by unlayered
+       consumer CSS, so core re-checks this at attach and writes it inline when
+       the computed value is still `static`. */
+    position: relative;
+  }
+}

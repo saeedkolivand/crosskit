@@ -5,13 +5,17 @@ import {
   Alert,
   Button,
   Card,
+  Cascader,
   Descriptions,
   Empty,
   List,
   Result,
   Skeleton,
+  Splitter,
   Statistic,
   Steps,
+  Upload,
+  Watermark,
 } from "@crosskit-ui/react";
 
 /**
@@ -41,6 +45,12 @@ const STEPS = [{ title: "One", description: "First" }, { title: "Two" }];
 const ROWS = [
   { id: "a", name: "Row A" },
   { id: "b", name: "Row B" },
+];
+const CASCADE = [{ key: "a", title: "A", children: [{ key: "a1", title: "A1" }] }];
+// Seeded rather than picked: a row has to exist for the list parts to render,
+// and a nesting harness cannot open a file dialog.
+const FILES = [
+  { uid: "1", name: "a.txt", size: 3, type: "text/plain", status: "done" as const, percent: 100 },
 ];
 
 function Harness() {
@@ -100,6 +110,57 @@ function Harness() {
 
       <Pair id="button-result" container={c => <Button>{c}</Button>}>
         <Result status="info" title="t" />
+      </Pair>
+
+      {/* The four newest components, in both directions. Each was written by
+          someone who knew only its own `data-part` vocabulary, and all four hold
+          arbitrary consumer content — which is the pairing that makes a shared
+          part name into a leak. */}
+
+      <Pair
+        id="splitter-list"
+        container={c => (
+          <Splitter>
+            <Splitter.Panel>{c}</Splitter.Panel>
+            <Splitter.Panel>b</Splitter.Panel>
+          </Splitter>
+        )}
+      >
+        <List
+          header="Head"
+          footer="Foot"
+          dataSource={ROWS}
+          rowKey={r => r.id}
+          renderItem={r => r.name}
+        />
+      </Pair>
+
+      <Pair id="watermark-desc" container={c => <Watermark content="draft">{c}</Watermark>}>
+        <Descriptions title="Profile" items={[{ label: "Name", children: "Ada" }]} />
+      </Pair>
+
+      <Pair id="dragger-list" container={c => <Upload.Dragger>{c}</Upload.Dragger>}>
+        <List dataSource={ROWS} rowKey={r => r.id} renderItem={r => r.name} footer="Foot" />
+      </Pair>
+
+      {/* The other direction: an old container holding a new component, so the
+          new parts are the ones a foreign rule could reach. */}
+
+      <Pair id="card-splitter" container={c => <Card>{c}</Card>}>
+        <Splitter>
+          <Splitter.Panel>a</Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+      </Pair>
+
+      <Pair id="card-upload" container={c => <Card>{c}</Card>}>
+        <Upload defaultFileList={FILES}>
+          <Button>Pick</Button>
+        </Upload>
+      </Pair>
+
+      <Pair id="card-cascader" container={c => <Card>{c}</Card>}>
+        <Cascader options={CASCADE} defaultValue={["a", "a1"]} />
       </Pair>
     </main>
   );

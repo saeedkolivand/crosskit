@@ -34,7 +34,11 @@ export interface Locale {
     selectTime: string;
   };
   Pagination: { previous: string; next: string; jumpTo: string; perPage: string };
-  Upload: { uploading: string; remove: string; retry: string; error: string };
+  /**
+   * `done` and `error` are what the hidden live region announces on settle, so
+   * they are whole sentences about one file rather than button labels.
+   */
+  Upload: { uploading: string; remove: string; retry: string; error: string; done: string };
   Popconfirm: { okText: string; cancelText: string };
   /** Templates for the form engine's rule messages. `{label}` and friends are substituted. */
   Form: {
@@ -75,7 +79,13 @@ export const enUS: Locale = {
     selectTime: "Select time",
   },
   Pagination: { previous: "Previous", next: "Next", jumpTo: "Go to", perPage: "per page" },
-  Upload: { uploading: "Uploading…", remove: "Remove", retry: "Retry", error: "Upload failed" },
+  Upload: {
+    uploading: "Uploading…",
+    remove: "Remove",
+    retry: "Retry",
+    error: "Upload failed",
+    done: "uploaded",
+  },
   Popconfirm: { okText: "Yes", cancelText: "No" },
   Form: {
     required: "{label} is required",

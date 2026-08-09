@@ -69,3 +69,6 @@ test-results/
 # Generated code-intelligence indexes (rebuilt with `graphify update .` / `codegraph sync`)
 graphify-out/
 .codegraph/
+
+# Throwaway git worktrees for parallel agent runs
+.claude/worktrees/
