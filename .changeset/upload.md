@@ -35,6 +35,12 @@ dialog and nothing else. `addFiles` runs it on every path.
 batch to the room that is left. Implemented as a truncate, the `1` case leaves
 the old file in place and silently discards the new pick.
 
+A replacement is a **removal plus an addition**, and the adapter reports it as
+both: the displaced row's request is aborted, the object URL the component minted
+for it is revoked, and `onChange` fires for it with the settled list. Writing the
+next list straight to state looks right — the row does leave the screen — and
+leaves a request sending bytes for a file nobody can see.
+
 uids are minted from a monotonic counter, never derived from the file. A uid
 hashed from name and size makes a late resolve settle the wrong entry: remove
 `a.png` mid-flight, re-add `a.png`, and the first request marks the second row
@@ -74,16 +80,29 @@ to the dropped file and `drop` never fires — a consequence neither jsdom nor
 Playwright can reproduce, since both dispatch a synthetic `drop` regardless, so
 what is asserted is the `preventDefault()` call itself.
 
+`disabled` reaches the per-row controls as well as the trigger and the input: a
+disabled Upload that still removes rows and still fires a request from Retry is
+disabled in appearance only. `beforeUpload`'s second argument is the files that
+were **admitted** alongside this one — what `accept` and `maxCount` let through,
+not the raw batch the user picked.
+
+The live region alternates a zero-width space, because a screen reader announces
+a live region when its content mutates rather than when something writes to it.
+Retrying a file that fails the same way twice produces the identical string,
+React bails on the identical state, and the second failure is silent.
+
 Progress is an inline custom property, `--ck-upload-progress`, not a data
 attribute: CSS cannot do arithmetic on an attribute value, and `[data-progress]`
 matches when the value is `"0"`.
 
 New in `@crosskit-ui/styles`: `upload.css`. The fill is sized with
 `calc(var(--ck-upload-progress) * 1%)` on a flex track rather than translated,
-so it grows from the inline start in both directions. Hover rules are guarded
-with `:not([data-state="error"])`, because a bare hover that also names the part
-is the same (0,3,0) as the state rule and would repaint a failed row on the way
-to its own retry button.
+so it grows from the inline start in both directions. Every hover rule is
+guarded — `:not([data-state="error"])` on a row, `:not([data-drag-over])` on the
+dropzone, `:not([data-disabled])` on the per-row controls — because a hover that
+also names the part matches at (0,3,0) or better and would otherwise settle
+against the state rule on source order alone: a failed row repainted on the way
+to its own retry button, or a drop highlight that never appears.
 
 `Locale["Upload"]` gains a `done` string, which the hidden live region announces
 on a successful settle.

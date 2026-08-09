@@ -65,6 +65,13 @@ describe("acceptsFile", () => {
   it("is case-insensitive on both sides", () => {
     expect(acceptsFile(makeFile("PHOTO.PNG"), ".png")).toBe(true);
     expect(acceptsFile(makeFile("photo.png", "IMAGE/PNG"), "image/png")).toBe(true);
+    // The RULE side too. `accept=".PNG"` and `accept="IMAGE/*"` are both legal
+    // attribute values, and lowercasing only the file leaves the rule-side
+    // `toLowerCase()` unguarded — every rule in a fixture written in lower case
+    // agrees with a broken implementation.
+    expect(acceptsFile(makeFile("photo.png"), ".PNG")).toBe(true);
+    expect(acceptsFile(makeFile("photo.png", "image/png"), "IMAGE/*")).toBe(true);
+    expect(acceptsFile(makeFile("photo.png", "image/png"), "IMAGE/PNG")).toBe(true);
   });
 
   it("matches a wildcard MIME rule by prefix, and refuses a typeless file", () => {
@@ -136,6 +143,22 @@ describe("addFiles", () => {
     const result = addFiles(list, [makeFile("a.png")], { maxCount: 2 });
     expect(result.list).toBe(list);
     expect(result.rejected).toHaveLength(1);
+  });
+
+  it("admits nothing when a controlled list is already OVER its maxCount", () => {
+    // Three in, room for two: `maxCount - list.length` is -1, and `slice(0, -1)`
+    // counts from the END — so without the `Math.max(0, …)` floor this admits
+    // the batch minus its last file, pushing the list further over the cap. A
+    // controlled `fileList` set from outside can be any length at all.
+    //
+    // Two offered files, not one: `slice(0, -1)` of a single-file batch is
+    // empty, which is the same answer the floor gives, and that fixture cannot
+    // tell the two implementations apart.
+    const list = [entry("one"), entry("two"), entry("three")];
+    const result = addFiles(list, [makeFile("a.png"), makeFile("b.png")], { maxCount: 2 });
+    expect(result.list).toBe(list);
+    expect(result.added).toEqual([]);
+    expect(result.rejected.map(f => f.name)).toEqual(["a.png", "b.png"]);
   });
 
   it("appends to the end, so the list reads in pick order", () => {
@@ -362,6 +385,30 @@ describe("xhrUpload", () => {
       expect(xhr.headers).toEqual({ "X-Csrf": "t" });
       expect(xhr.sent!.get("avatar")).toBeInstanceOf(File);
       expect(xhr.sent!.get("album")).toBe("trip");
+    });
+  });
+
+  it("opens with the configured method, and defaults to POST", () => {
+    withFakeXhr(() => {
+      xhrUpload(options({ method: "PUT" }));
+      // A configured PUT silently sent as a POST is a request the server answers
+      // with 405 and nothing here explains why. `method` is advertised on the
+      // prop surface, so the plumbing is a contract, not an internal.
+      expect(FakeXhr.last.opened![0]).toBe("PUT");
+      xhrUpload(options());
+      expect(FakeXhr.last.opened![0]).toBe("POST");
+    });
+  });
+
+  it("turns credentials on only when asked, and defaults them off", () => {
+    withFakeXhr(() => {
+      xhrUpload(options({ withCredentials: true }));
+      // Dropped, the cross-origin request goes out with no cookie and the server
+      // answers 401 — the exact failure that reads as "the upload endpoint is
+      // broken" rather than as a missing flag.
+      expect(FakeXhr.last.withCredentials).toBe(true);
+      xhrUpload(options());
+      expect(FakeXhr.last.withCredentials).toBe(false);
     });
   });
 

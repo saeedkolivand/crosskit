@@ -47,17 +47,28 @@ function manualRequest() {
 describe("Upload", () => {
   it("renders its parts, with the consumer's class on the root untouched", () => {
     render(
-      <Upload className="mine" data-testid="up">
+      <Upload className="mine">
         <button>Select</button>
       </Upload>
     );
     expect(root()).toHaveClass("mine");
-    // `...rest` spreads after our own data-*, which is what lets a consumer —
-    // and a composing component — override anything.
-    expect(root()).toHaveAttribute("data-testid", "up");
     expect(root()).toHaveAttribute("data-list-type", "text");
     expect(part("trigger")).toBeInTheDocument();
     expect(part("status")).toHaveAttribute("role", "status");
+  });
+
+  it("spreads the consumer's attributes AFTER its own, so they win", () => {
+    render(
+      <Upload listType="text" data-list-type="picture">
+        x
+      </Upload>
+    );
+    // Deliberately an attribute the component itself writes, and with a value it
+    // would never write for these props. A `data-testid` collides with nothing
+    // we emit, so it lands on the root whether `{...rest}` spreads first or
+    // last — an assertion that cannot fail. This one can: spread first and the
+    // component's own `data-list-type="text"` overwrites it.
+    expect(root()).toHaveAttribute("data-list-type", "picture");
   });
 
   it("emits `disabled` as a presence attribute, never as the string false", () => {
@@ -210,6 +221,46 @@ describe("Upload", () => {
     // silently discarded — which reads as "the picker is broken".
     expect(items()).toHaveLength(1);
     expect(screen.getByText("second.png")).toBeInTheDocument();
+  });
+
+  it("treats the row a maxCount 1 pick displaces as a removal, not as a disappearance", async () => {
+    const user = userEvent.setup();
+    const created: string[] = [];
+    const revoked: string[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      const url = `blob:fake/${created.length}`;
+      created.push(url);
+      return url;
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(url => void revoked.push(url));
+    const { calls, aborts, customRequest } = manualRequest();
+    const onChange = vi.fn();
+    render(
+      <Upload maxCount={1} listType="picture" customRequest={customRequest} onChange={onChange}>
+        x
+      </Upload>
+    );
+    await user.upload(input(), makeFile("first.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    await user.upload(input(), makeFile("second.png"));
+    await waitFor(() => expect(screen.getByText("second.png")).toBeInTheDocument());
+
+    // The row is off the screen either way, which is exactly what makes this
+    // easy to miss: writing the next list straight to state LOOKS right. What is
+    // dropped with it is the request still sending bytes for a file nobody can
+    // see, the object URL we minted for it, and any word to the consumer that it
+    // went. A replacement is a removal plus an addition.
+    expect(aborts).toHaveBeenCalledOnce();
+    expect(revoked).toEqual([created[0]]);
+    expect(
+      onChange.mock.calls.some(
+        ([info]) =>
+          info.file.name === "first.png" &&
+          !info.fileList.some((f: UploadFile) => f.name === "first.png")
+      )
+    ).toBe(true);
+    vi.restoreAllMocks();
   });
 
   it("truncates the batch to the room left under any other maxCount", async () => {
@@ -386,6 +437,41 @@ describe("Upload", () => {
     expect(part("item-error")).toBeNull();
   });
 
+  it("disables the per-row controls, so a disabled Upload neither removes nor retries", async () => {
+    const user = userEvent.setup();
+    const { calls, customRequest } = manualRequest();
+    // Picked while ENABLED, and failed, so the row carries a real `File` and a
+    // real retry button. Seeding the list instead would give an entry with no
+    // `file`, which `request` refuses on its own — a fixture where the guarded
+    // and the unguarded component behave identically.
+    const { rerender } = render(<Upload customRequest={customRequest}>x</Upload>);
+    await user.upload(input(), makeFile("a.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    calls[0]!.onError(new Error("500"));
+    await waitFor(() => expect(items()[0]).toHaveAttribute("data-state", "error"));
+
+    rerender(
+      <Upload disabled customRequest={customRequest}>
+        x
+      </Upload>
+    );
+    const retry = screen.getByRole("button", { name: /Retry/ });
+    const remove = screen.getByRole("button", { name: /Remove/ });
+    // The attribute as well as the property: the stylesheet's hover rules are
+    // written `:not([data-disabled])`, and a guard against an attribute nothing
+    // ever sets is a guard against nothing.
+    expect(retry.getAttribute("data-disabled")).toBe("");
+    expect(remove.getAttribute("data-disabled")).toBe("");
+
+    await user.click(retry);
+    await user.click(remove);
+    await Promise.resolve();
+    // A disabled Upload that still fires a network request and still drops rows
+    // is disabled in appearance only.
+    expect(calls).toHaveLength(1);
+    expect(items()).toHaveLength(1);
+  });
+
   it("names the file in every per-row control, and in the progressbar", async () => {
     const user = userEvent.setup();
     const { calls, customRequest } = manualRequest();
@@ -419,6 +505,30 @@ describe("Upload", () => {
 
     calls[0]!.onSuccess("ok");
     await waitFor(() => expect(part("status")).toHaveTextContent("a.png uploaded"));
+  });
+
+  it("announces a second settle whose words are identical to the first", async () => {
+    const user = userEvent.setup();
+    const { calls, customRequest } = manualRequest();
+    render(<Upload customRequest={customRequest}>x</Upload>);
+    await user.upload(input(), makeFile("a.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    calls[0]!.onError(new Error("500"));
+    await waitFor(() => expect(part("status")).toHaveTextContent("a.png Upload failed"));
+    const first = part("status")!.textContent;
+
+    await user.click(screen.getByRole("button", { name: /Retry/ }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    calls[1]!.onError(new Error("500"));
+
+    // Deliberately the SAME file failing the SAME way — the one case where a
+    // plain `setAnnouncement` is silent. A screen reader announces a live region
+    // when its content mutates, not when something writes to it, so an identical
+    // string that React bails on never reaches the DOM at all. Asserting the
+    // words would pass against that; asserting that the text CHANGED will not.
+    await waitFor(() => expect(part("status")!.textContent).not.toBe(first));
+    expect(part("status")).toHaveTextContent("a.png Upload failed");
   });
 
   it("admits a file at `selected` and never uploads it when beforeUpload says no", async () => {
@@ -511,6 +621,27 @@ describe("Upload", () => {
     expect(onChange.mock.calls.at(-1)![0].fileList).toHaveLength(0);
   });
 
+  it("never aborts a request that already finished", async () => {
+    const user = userEvent.setup();
+    const aborts = vi.fn();
+    // Success BEFORE the handle comes back, which is what a `customRequest`
+    // backed by a cache, a data URL or an already-resolved promise does. The
+    // settle deletes the uid from the abort map, and then the handle is stored
+    // on top of it — so removing the finished row calls the consumer's
+    // `abort()` on a request that is over.
+    const customRequest = (args: UploadRequestArgs) => {
+      args.onSuccess({ id: 1 });
+      return { abort: aborts };
+    };
+    render(<Upload customRequest={customRequest}>x</Upload>);
+    await user.upload(input(), makeFile("a.png"));
+    await waitFor(() => expect(items()[0]).toHaveAttribute("data-state", "done"));
+
+    await user.click(screen.getByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(items()).toHaveLength(0));
+    expect(aborts).not.toHaveBeenCalled();
+  });
+
   it("lets a late response resolve into nothing once its row is gone", async () => {
     const user = userEvent.setup();
     const { calls, customRequest } = manualRequest();
@@ -599,12 +730,19 @@ describe("Upload", () => {
     await waitFor(() => expect(items()).toHaveLength(1));
   });
 
-  it("renders a preview button, a link, or plain text — in that order", () => {
+  it("renders a preview button, a link, or plain text — in that order", async () => {
+    const user = userEvent.setup();
     const remote = seeded({ url: "https://cdn.example/a.png" });
     // Separate mounts rather than a rerender: `defaultFileList` is read once, in
     // the state initialiser, so a rerender with a different one changes nothing.
-    const preview = render(<Upload defaultFileList={[remote]} onPreview={vi.fn()} />);
+    const onPreview = vi.fn();
+    const preview = render(<Upload defaultFileList={[remote]} onPreview={onPreview} />);
     expect(part("item-name")!.tagName).toBe("BUTTON");
+    // And it is wired. A button that renders and calls nothing satisfies
+    // `tagName === "BUTTON"` exactly as well as a working one does, so the tag
+    // check alone leaves the whole prop unexercised.
+    await user.click(part("item-name")!);
+    expect(onPreview).toHaveBeenCalledWith(remote);
     preview.unmount();
 
     const linked = render(<Upload defaultFileList={[remote]} />);
@@ -683,11 +821,14 @@ describe("Upload.Dragger", () => {
   const fire = (type: keyof typeof fireEvent, files: File[] = [], target?: Element) => {
     const event = createEvent[type as "dragEnter"](target ?? dropzone(), {
       // jsdom has no DataTransfer, so the shape the handlers read is supplied
-      // by hand.
-      dataTransfer: { files, items: [], dropEffect: "none", types: ["Files"] },
+      // by hand. `dropEffect` starts at `"link"`, which is a value the component
+      // writes under no condition: seeded with the realistic `"none"`, the
+      // disabled case's assertion would pass against a component that sets
+      // nothing at all.
+      dataTransfer: { files, items: [], dropEffect: "link", types: ["Files"] },
     } as never);
     fireEvent(target ?? dropzone(), event);
-    return event;
+    return event as DragEvent;
   };
 
   it("is a div with the role spelled out, not a button", () => {
@@ -749,9 +890,8 @@ describe("Upload.Dragger", () => {
     expect(dropzone()).not.toHaveAttribute("data-drag-over");
   });
 
-  it("cancels dragover, which is the only reason drop fires at all", () => {
+  it("cancels dragenter and dragover, which is the only reason drop fires at all", () => {
     render(<Upload.Dragger>drop here</Upload.Dragger>);
-    const event = fire("dragOver");
     // Without this the browser navigates away to the dropped file and `drop`
     // never fires. Nothing asserts that consequence anywhere: jsdom dispatches
     // a synthetic `drop` regardless, and so does Playwright's `dispatchEvent`
@@ -759,7 +899,23 @@ describe("Upload.Dragger", () => {
     // green. Neither harness can start an OS file drag, so this assertion on
     // the mechanism is the whole defence, and it is deliberately the narrowest
     // possible one.
-    expect(event.defaultPrevented).toBe(true);
+    expect(fire("dragOver").defaultPrevented).toBe(true);
+    // `dragenter` too, and for the same reason: a zone that cancels only
+    // `dragover` is not registered as a drop target until the pointer moves,
+    // and the first frame of the drag is the browser's own refusal cursor.
+    expect(fire("dragEnter").defaultPrevented).toBe(true);
+  });
+
+  it("promises a copy for a drop it will take, and none for one it will refuse", () => {
+    const enabled = render(<Upload.Dragger>drop here</Upload.Dragger>);
+    // The cursor the OS paints mid-drag is the only answer a dragger gives
+    // before the drop lands. `"copy"` over a zone that will then refuse the file
+    // is a promise broken after the fact.
+    expect(fire("dragOver").dataTransfer!.dropEffect).toBe("copy");
+    enabled.unmount();
+
+    render(<Upload.Dragger disabled>drop here</Upload.Dragger>);
+    expect(fire("dragOver").dataTransfer!.dropEffect).toBe("none");
   });
 
   it("admits a dropped file", async () => {
@@ -780,12 +936,16 @@ describe("Upload.Dragger", () => {
   it("takes no drop at all while disabled", async () => {
     render(<Upload.Dragger disabled>drop here</Upload.Dragger>);
     fire("dragEnter");
+    // BEFORE the drop, which resets the depth to 0 unconditionally: after it the
+    // attribute is absent whether or not the highlight ever appeared, so the
+    // assertion in that position cannot see a disabled dragger lighting up.
+    expect(dropzone()).not.toHaveAttribute("data-drag-over");
+
     fire("drop", [makeFile("a.png")]);
     // A dropzone that still accepts drops while looking disabled is the failure
     // that reaches production.
     await Promise.resolve();
     expect(items()).toHaveLength(0);
-    expect(dropzone()).not.toHaveAttribute("data-drag-over");
   });
 
   it("shares every behaviour path with the plain Upload", () => {

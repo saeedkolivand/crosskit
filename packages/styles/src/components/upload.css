@@ -58,7 +58,13 @@
     text-align: center;
     cursor: pointer;
   }
-  [data-scope="upload"][data-part="dropzone"]:not([data-disabled]):hover {
+  /* Guarded on `[data-drag-over]` as well as on `[data-disabled]`: this rule is
+     (0,4,0) with the `:hover` and the drag-over rule below is (0,3,0), so the
+     pointer's border colour would outrank the drop highlight's. Engines suppress
+     `:hover` while a drag is in progress, which masks it today and would keep
+     masking it right up until one of them stops. Source order cannot settle
+     this — only the guard can. */
+  [data-scope="upload"][data-part="dropzone"]:not([data-disabled]):not([data-drag-over]):hover {
     border-color: var(--ck-accent-border, var(--ck-accent-solid));
   }
   [data-scope="upload"][data-part="dropzone"]:focus-visible {
@@ -186,14 +192,17 @@
     color: var(--ck-danger-solid);
   }
 
+  /* No auto margin. `item-name` is `flex: 1` and eats every pixel of free space
+     in the row, so a `margin-inline-start: auto` here has nothing left to push
+     against — it was dead, and the RTL assertions that named it were passing on
+     the name's growth instead. What puts the actions at the inline end is that
+     growth, and `upload.spec.ts` now measures against the row's own inline end
+     so that removing it fails. */
   [data-scope="upload"][data-part="item-actions"] {
     display: inline-flex;
     flex: none;
     align-items: center;
     gap: 0.125rem;
-    /* Logical auto margin: the actions sit at the inline END, which is the right
-       in LTR and the left in RTL. */
-    margin-inline-start: auto;
   }
 
   [data-scope="upload"][data-part="retry"],

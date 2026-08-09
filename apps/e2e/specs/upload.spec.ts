@@ -67,12 +67,28 @@ for (const dir of ["ltr", "rtl"] as const) {
 
   test(`puts the actions at the inline end, ${dir}`, async ({ page }) => {
     await open(page, dir);
-    const [name] = await box(page, '#states [data-part="item-name"]');
     const [actions] = await box(page, '#states [data-part="item-actions"]');
-    // `margin-inline-start: auto` — physical `margin-left` would pin them to the
-    // right in both directions.
-    if (dir === "ltr") expect(actions!.left).toBeGreaterThan(name!.right - 1);
-    else expect(actions!.right).toBeLessThan(name!.left + 1);
+    // The ROW's inline content edge, not the name's opposite edge. The actions
+    // follow the name in source order, so `actions.left > name.right` holds
+    // however narrow the name is — an assertion that cannot fail, and the one
+    // that was here. What actually carries the actions to the end is `flex: 1`
+    // on `item-name` eating every pixel of free space; with `flex: none` there
+    // instead they sit a couple of hundred pixels short of this edge, in both
+    // directions. (An auto inline margin on the actions has nothing left to push
+    // against beside that growth, which is why there is not one.)
+    const edge = await page
+      .locator('#states [data-part="item"]')
+      .first()
+      .evaluate((el, d) => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return d === "ltr"
+          ? rect.right - parseFloat(style.paddingRight)
+          : rect.left + parseFloat(style.paddingLeft);
+      }, dir);
+
+    if (dir === "ltr") expect(Math.abs(actions!.right - edge)).toBeLessThan(1.5);
+    else expect(Math.abs(actions!.left - edge)).toBeLessThan(1.5);
   });
 }
 
@@ -126,6 +142,30 @@ test("paints the dropzone differently while something is over it", async ({ page
   expect(await paint()).not.toBe(before);
 });
 
+test("lets the drop highlight outrank the pointer's own hover", async ({ page }) => {
+  await open(page);
+  const dropzone = page.locator('#dragover-guard [data-part="dropzone"]');
+  const border = () => dropzone.evaluate(el => getComputedStyle(el).borderTopColor);
+
+  await dropzone.hover();
+  // The fixture moves `--ck-accent-border` off `--ck-accent-solid`, which the
+  // light theme happens to point at the same colour — with the two equal, no
+  // assertion here could tell the hover rule from the drag-over rule. The dark
+  // theme already gives them different values.
+  expect(await border()).toBe("rgb(0, 128, 0)");
+
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await dropzone.dispatchEvent("dragenter", { dataTransfer: transfer });
+  await expect(dropzone).toHaveAttribute("data-drag-over", "");
+  // The pointer never left, and `dispatchEvent` is not a real drag — so nothing
+  // suppresses `:hover` here, which is exactly the state the `:not()` guard
+  // exists for. Unguarded, the hover rule is (0,4,0) against the drag-over
+  // rule's (0,3,0) and the drop highlight never appears at all. Engines
+  // suppressing `:hover` mid-drag is what masks this in production, and it is
+  // not a rule anything guarantees.
+  expect(await border()).not.toBe("rgb(0, 128, 0)");
+});
+
 test("leaves a failed row alone under the pointer, and repaints a finished one", async ({
   page,
 }) => {
@@ -157,9 +197,12 @@ test("truncates a long name instead of overflowing the row", async ({ page }) =>
     client: el.clientWidth,
     ellipsis: getComputedStyle(el).textOverflow,
   }));
-  // `min-inline-size: 0` as well as the ellipsis triple: a flex child refuses to
-  // shrink below its content otherwise, and the row grows past its container
-  // with no ellipsis anywhere.
+  // `overflow: hidden` as well as the ellipsis triple, and it is doing both
+  // jobs: a flex child's automatic minimum size only applies while `overflow`
+  // is `visible`, so that one declaration is also what lets the name shrink
+  // below its content. Without it the row grows past its container with no
+  // ellipsis anywhere. (`min-inline-size: 0` is the usual incantation for the
+  // second job and was measured to change nothing here, so it is not shipped.)
   expect(overflow.scroll).toBeGreaterThan(overflow.client);
   expect(overflow.ellipsis).toBe("ellipsis");
 
@@ -179,6 +222,80 @@ test("crops the thumbnail square rather than squashing it", async ({ page }) => 
       .locator('#picture [data-part="thumbnail"]')
       .evaluate(el => getComputedStyle(el).objectFit)
   ).toBe("cover");
+});
+
+test("gives a picture row the block padding its thumbnail needs", async ({ page }) => {
+  await open(page);
+  const [item] = await box(page, '#picture [data-part="item"]');
+  const [thumb] = await box(page, '#picture [data-part="thumbnail"]');
+  // 0.375rem above and below the 2.5rem thumbnail, and 12px is the whole
+  // claim: the text row's 0.25rem is what a picture row falls back to when the
+  // `[data-list-type="picture"]` override goes, so a thumbnail crushed against
+  // the row's edges is 8px here and this fails. Asserting only that the row is
+  // taller than the thumbnail would pass at either padding.
+  expect(Math.abs(item!.height - thumb!.height - 12)).toBeLessThan(1);
+});
+
+test("hides the file input without taking away its ability to open the dialog", async ({
+  page,
+}) => {
+  await open(page);
+  const [field] = await box(page, '#layered [data-part="input"]');
+  // Nothing in the markup hides this: `aria-hidden` and `tabindex="-1"` keep it
+  // out of the a11y tree and the tab order and leave it fully painted. Without
+  // the stylesheet's visually-hidden rule a native ~250px "Choose file" control
+  // renders inside every Upload in the library.
+  expect(field!.width).toBeLessThan(3);
+  expect(field!.height).toBeLessThan(3);
+  // And NOT `display: none`, which would take away the one guaranteed way to
+  // open the file dialog.
+  const display = await page
+    .locator('#layered [data-part="input"]')
+    .evaluate(el => getComputedStyle(el).display);
+  expect(display).not.toBe("none");
+});
+
+test("paints a disabled Upload as disabled, cursors and all", async ({ page }) => {
+  await open(page);
+  const opacity = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate(el => getComputedStyle(el).opacity);
+  const cursor = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate(el => getComputedStyle(el).cursor);
+
+  // Both sides, because "the disabled root is dimmed" is also true of a
+  // stylesheet that dims every root.
+  expect(await opacity('#disabled [data-part="root"]')).toBe("0.6");
+  expect(await opacity('#states [data-part="root"]')).toBe("1");
+  expect(await cursor('#disabled [data-part="trigger"]')).toBe("not-allowed");
+  expect(await cursor('#disabled [data-part="dropzone"]')).toBe("not-allowed");
+  expect(await cursor('#dragger [data-part="dropzone"]')).toBe("pointer");
+});
+
+test("holds a disabled row's controls still under the pointer", async ({ page }) => {
+  await open(page);
+  const off = page.locator('#disabled [data-part="remove"]');
+  const on = page.locator('#states [data-part="remove"]').first();
+  const colour = (target: typeof off) => target.evaluate(el => getComputedStyle(el).color);
+
+  const offBefore = await colour(off);
+  await off.hover();
+  // `:not([data-disabled])` on the hover rule, guarding an attribute the markup
+  // has to actually set on the button — a guard against an attribute nothing
+  // writes is a guard against nothing.
+  expect(await colour(off)).toBe(offBefore);
+
+  const onBefore = await colour(on);
+  await on.hover();
+  // And the guard has not simply switched hover off: an assertion that only
+  // looked at the disabled control would pass against a stylesheet carrying no
+  // hover rule at all.
+  expect(await colour(on)).not.toBe(onBefore);
 });
 
 test("states its own display on the root", async ({ page }) => {

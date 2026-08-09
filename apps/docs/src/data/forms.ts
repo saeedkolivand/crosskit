@@ -342,7 +342,7 @@ export const forms: ComponentDoc[] = [
         name: "beforeUpload",
         type: "(file: File, files: File[]) => boolean | Promise<boolean>",
         description:
-          "`false` — or a rejected promise — lists the file at status `selected` and never uploads it.",
+          "`false` — or a rejected promise — lists the file at status `selected` and never uploads it. The second argument is the files that were ADMITTED, not the raw batch: what `accept` and `maxCount` let through.",
       },
       { name: "multiple", type: "boolean", default: "false", description: "Allow a multi-pick." },
       {
@@ -355,13 +355,13 @@ export const forms: ComponentDoc[] = [
         name: "maxCount",
         type: "number",
         description:
-          "`1` REPLACES the list and drops `multiple` from the dialog; any other value truncates the incoming batch to the room left.",
+          "`1` REPLACES the list and drops `multiple` from the dialog; any other value truncates the incoming batch to the room left. The replaced row is aborted, revoked and reported through `onChange` — a replacement is a removal plus an addition.",
       },
       {
         name: "disabled",
         type: "boolean",
         default: "false",
-        description: "Refuse picks and drops.",
+        description: "Refuse picks and drops, and disable each row's own Retry and Remove.",
       },
       {
         name: "listType",

@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import "@crosskit-ui/styles";
 import { Button, Upload, type UploadFile } from "@crosskit-ui/react";
@@ -45,8 +45,10 @@ function Harness() {
         </Upload>
       </div>
 
-      {/* Truncation needs `min-inline-size: 0` on the flex child as well as the
-          ellipsis triple, or the row grows past its container instead. */}
+      {/* Truncation needs the ellipsis triple AND `overflow: hidden` — which is
+          also what lets a flex child shrink below its own content, since the
+          automatic minimum size only applies while `overflow` is `visible`.
+          Without it the row grows past this 260px container instead. */}
       <div id="truncate" style={{ inlineSize: 260 }}>
         <Upload
           fileList={[
@@ -70,6 +72,32 @@ function Harness() {
       {/* Uncontrolled, because the drop has to actually add a row. */}
       <div id="dragger" style={{ inlineSize: 340 }}>
         <Upload.Dragger>
+          <p>Drop a file here</p>
+        </Upload.Dragger>
+      </div>
+
+      {/* The drop highlight against the pointer's own hover. `--ck-accent-border`
+          is overridden here because the LIGHT theme points it at the same colour
+          as `--ck-accent-solid`, and two rules painting the same colour cannot
+          be told apart — the dark theme already gives them different values, so
+          this is a real configuration rather than a contrivance. */}
+      <div
+        id="dragover-guard"
+        style={{ inlineSize: 340, "--ck-accent-border": "rgb(0, 128, 0)" } as CSSProperties}
+      >
+        <Upload.Dragger>
+          <p>Drop a file here</p>
+        </Upload.Dragger>
+      </div>
+
+      {/* The whole `[data-disabled]` paint surface, which nothing else here
+          renders: the dimmed root, the refusing cursors, and the per-row
+          controls whose hover rules are written `:not([data-disabled])`. */}
+      <div id="disabled" style={{ inlineSize: 340 }}>
+        <Upload disabled fileList={[entry({ uid: "bad", status: "error", percent: 55 })]}>
+          <Button>Select</Button>
+        </Upload>
+        <Upload.Dragger disabled>
           <p>Drop a file here</p>
         </Upload.Dragger>
       </div>

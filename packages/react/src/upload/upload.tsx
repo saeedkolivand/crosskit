@@ -80,6 +80,11 @@ export interface UploadProps extends Omit<
   /**
    * `false` — or a promise resolving to `false`, or a rejected one — admits the
    * file at `selected` and never uploads it.
+   *
+   * The second argument is the files that were ADMITTED alongside this one —
+   * what `accept` and `maxCount` let through, not the raw batch the user picked.
+   * A hook that vetoes on "more than three at once" is therefore counting what
+   * is actually in the list.
    */
   beforeUpload?: (file: File, files: File[]) => boolean | Promise<boolean>;
 
@@ -103,6 +108,9 @@ export interface UploadProps extends Omit<
 interface InternalProps extends UploadProps {
   dragger?: boolean;
 }
+
+/** A zero-width space. See `announce`. Neither rendered nor spoken. */
+const NUDGE = "\u200B";
 
 function UploadBase({
   fileList: controlled,
@@ -163,6 +171,19 @@ function UploadBase({
   /** Written only on settle. A tick-by-tick live region is unusable with a screen reader. */
   const [announcement, setAnnouncement] = useState("");
 
+  /**
+   * Writes the live region, and guarantees the text actually CHANGED.
+   *
+   * A screen reader announces a live region when its content mutates, not when
+   * something writes to it. Retrying a file that fails the same way twice
+   * produces the identical string, React bails on the identical state, no DOM
+   * mutation reaches the region and the second failure is silent. The
+   * alternating zero-width space is a real text change that is neither rendered
+   * nor spoken.
+   */
+  const announce = (message: string) =>
+    setAnnouncement(current => (current.endsWith(NUDGE) ? message : `${message}${NUDGE}`));
+
   useEffect(
     () => () => {
       const aborts = abortsRef.current;
@@ -208,11 +229,21 @@ function UploadBase({
 
     const onProgress = (percent: number) =>
       apply(uid, current => setProgress(current, uid, percent));
+    /**
+     * Whether this request is already over, readable BEFORE the transport has
+     * returned its handle. A `customRequest` that calls `onSuccess`
+     * synchronously runs `finish` — and its `delete` — while the caller below
+     * has nothing to delete yet, so storing the handle afterwards would leave a
+     * completed request in the map and `remove` would call the consumer's
+     * `abort()` on it.
+     */
+    let settled = false;
     const finish = (outcome: Parameters<typeof settleFile>[2], announced: string) => {
+      settled = true;
       abortsRef.current.delete(uid);
       const entry = listRef.current.find(f => f.uid === uid);
       apply(uid, current => settleFile(current, uid, outcome));
-      if (entry) setAnnouncement(`${entry.name} ${announced}`);
+      if (entry) announce(`${entry.name} ${announced}`);
     };
     const onSuccess = (response: unknown) =>
       finish({ status: "done", response }, locale.Upload.done);
@@ -246,7 +277,7 @@ function UploadBase({
         onSuccess,
         onError,
       });
-      if (handle) abortsRef.current.set(uid, handle.abort);
+      if (handle && !settled) abortsRef.current.set(uid, handle.abort);
       return;
     }
 
@@ -265,6 +296,23 @@ function UploadBase({
         onError,
       })
     );
+  };
+
+  /**
+   * Everything a row owns, released. No state write: the two callers already
+   * have their own next list.
+   *
+   * Aborting first is what stops a request from keeping a `File` alive and from
+   * sending bytes for a row that is on its way out. The revoke is guarded on the
+   * URL being one of OURS — an entry that arrived with its own `url`/`thumbUrl`
+   * from a server-side list is not something we created and not ours to revoke.
+   */
+  const discard = (entry: UploadFile) => {
+    abortsRef.current.get(entry.uid)?.();
+    abortsRef.current.delete(entry.uid);
+    if (entry.thumbUrl && ownedUrlsRef.current.delete(entry.thumbUrl)) {
+      URL.revokeObjectURL(entry.thumbUrl);
+    }
   };
 
   const admit = (picked: File[]) => {
@@ -291,12 +339,24 @@ function UploadBase({
     const next = result.list.map(withThumbs);
     const added = result.added.map(withThumbs);
 
+    // `maxCount: 1` REPLACES the list, so a pick can evict a row that is still
+    // uploading. Writing `result.list` straight to state drops that row on the
+    // floor: its request goes on running against a file nobody can see any more,
+    // the object URL we minted for it is never revoked, and the consumer is
+    // never told it went. A replacement is a removal plus an addition, and both
+    // halves have to be reported.
+    const kept = new Set(next.map(entry => entry.uid));
+    const displaced = listRef.current.filter(entry => !kept.has(entry.uid));
+
     listRef.current = next;
     if (controlled === undefined) setUncontrolled(next);
-    // One report per admitted file, all carrying the same settled list: `file`
+    for (const entry of displaced) discard(entry);
+    // One report per changed file, all carrying the same settled list: `file`
     // is singular, and a batch of five that reported once would leave four of
     // them unnamed.
-    for (const entry of added) changeRef.current?.({ file: entry, fileList: next });
+    for (const entry of [...displaced, ...added]) {
+      changeRef.current?.({ file: entry, fileList: next });
+    }
 
     const files = added.map(entry => entry.file).filter((file): file is File => file !== undefined);
     for (const entry of added) {
@@ -305,8 +365,11 @@ function UploadBase({
       void resolveVeto(beforeUpload?.(file, files)).then(ok => {
         // A veto leaves the row at `selected`, which is exactly why that state
         // exists — the file is in the list and visible, it just never goes out.
+        //
+        // No "is it still listed" check here: `request` looks the uid up and
+        // returns when it finds nothing, so a second one in front of it is a
+        // guard no mutation could distinguish from its own absence.
         if (!ok) return;
-        if (!listRef.current.some(f => f.uid === entry.uid)) return;
         void request(entry.uid);
       });
     }
@@ -331,17 +394,8 @@ function UploadBase({
   const remove = (entry: UploadFile) => {
     void resolveVeto(onRemove?.(entry)).then(ok => {
       if (!ok) return;
-      // Abort first: the request has to stop before the row it belongs to goes,
-      // or it keeps a File alive and keeps sending bytes for something the user
-      // has dismissed.
-      abortsRef.current.get(entry.uid)?.();
-      abortsRef.current.delete(entry.uid);
+      discard(entry);
       apply(entry.uid, current => removeFile(current, entry.uid));
-      // Only ours. An entry that arrived with its own `url`/`thumbUrl` from a
-      // server-side list is not something we created and not ours to revoke.
-      if (entry.thumbUrl && ownedUrlsRef.current.delete(entry.thumbUrl)) {
-        URL.revokeObjectURL(entry.thumbUrl);
-      }
     });
   };
 
@@ -544,6 +598,11 @@ function UploadBase({
                   </span>
                 )}
 
+                {/* `disabled` on both controls, because a disabled Upload that
+                    still removes files and still fires a request from Retry is
+                    disabled in appearance only — and the stylesheet's
+                    `:not([data-disabled])` hover guards need the attribute to
+                    guard against. */}
                 <span data-scope="upload" data-part="item-actions">
                   {entry.status === "error" && (
                     <button
@@ -554,6 +613,8 @@ function UploadBase({
                       // "Retry" buttons are indistinguishable in a screen
                       // reader's button list.
                       aria-label={`${locale.Upload.retry} ${entry.name}`}
+                      disabled={disabled}
+                      data-disabled={dataAttr(disabled)}
                       onClick={() => void request(entry.uid)}
                     >
                       <Icon name="refresh" size="sm" />
@@ -564,6 +625,8 @@ function UploadBase({
                     data-scope="upload"
                     data-part="remove"
                     aria-label={`${locale.Upload.remove} ${entry.name}`}
+                    disabled={disabled}
+                    data-disabled={dataAttr(disabled)}
                     onClick={() => remove(entry)}
                   >
                     <Icon name="close" size="sm" />
