@@ -194,7 +194,11 @@ function Harness() {
           200px box unless the root says `min-block-size: 0`. */}
       <div
         id="flex-column-box"
-        style={{ display: "flex", flexDirection: "column", blockSize: 200 }}
+        // The inline size is stated even though every assertion here is on the
+        // block axis: without it the box inherits the page width, which other
+        // fixtures on this page already push past the viewport — so this box's
+        // geometry would be decided by an unrelated fixture.
+        style={{ display: "flex", flexDirection: "column", blockSize: 200, inlineSize: 600 }}
       >
         <Splitter id="flex-column">
           <Splitter.Panel>

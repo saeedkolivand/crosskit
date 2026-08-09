@@ -363,44 +363,61 @@ test("shrinks it even when the panel is not clipping its own content", async ({ 
 
 test("fills the space a flex parent leaves it, not just its own content", async ({ page }) => {
   const root = await rect(page, "#flex-narrow");
-  const sibling = await rect(page, "#flex-narrow-sibling");
 
   // A flex item does not grow to fill its parent. Content here is "a", an 8px
-  // bar and "b", so without the root's own `inline-size: 100%` this is a ~20px
+  // bar and "b", so without the root's own `inline-size: 100%` this is a ~23px
   // sliver in a 600px row — and no minimum can produce the 500 instead, which
   // is what makes this box the one that reads that declaration alone.
+  //
+  // Nothing is asserted about the sibling here on purpose. It is `flex: 0 0
+  // 100px` inside a row the narrow root never overflows, so its width AND its
+  // position are the same whether the declaration is present or deleted — an
+  // assertion on either would be one of the invariant ones this file exists to
+  // avoid. The root's own width is the whole statement.
   expect(root.w).toBeCloseTo(500, 0);
-  expect(sibling.w).toBeCloseTo(100, 0);
 });
 
 test("shrinks below its own content as a flex item, without displacing a sibling", async ({
   page,
 }) => {
+  const box = await rect(page, "#flex-wide-box");
   const root = await rect(page, "#flex-wide");
   const sibling = await rect(page, "#flex-wide-sibling");
 
   // The panels already say `min-inline-size: 0`, and it is not enough: that
   // sets each panel's floor, it does not zero the panel's min-content
-  // CONTRIBUTION to the root's intrinsic size. The root's automatic minimum
-  // size is therefore still ~916px here, which overflows the 600px row and
-  // pushes the 100px sibling out of it.
+  // CONTRIBUTION to the root's intrinsic size, so the root keeps an automatic
+  // minimum of its widest child and refuses its 500px share. Deleting the
+  // root's min reads 600 here rather than the raw 916 — flex caps the automatic
+  // minimum at the specified size suggestion, which `inline-size: 100%`
+  // supplies — but 600 in a row that owes 100 to a sibling is already the
+  // defect, and 600 ≠ 500 is what turns this line red.
   expect(root.w).toBeCloseTo(500, 0);
-  expect(sibling.w).toBeCloseTo(100, 0);
+  // The consequence, and the reason the fixture has a sibling at all. Note this
+  // is the sibling's POSITION, not its width: `flex: 0 0 100px` is grow 0 AND
+  // shrink 0, so its width is structurally incapable of moving and asserting on
+  // it would pass under every mutation. Where it gets pushed TO is what differs.
+  expect(sibling.x + sibling.w).toBeLessThanOrEqual(box.x + box.w + 1);
 });
 
 test("shrinks below its own content as a grid item too", async ({ page }) => {
+  const box = await rect(page, "#grid-box");
   const root = await rect(page, "#grid-wide");
   const sibling = await rect(page, "#grid-sibling");
 
   // A grid item stretches to its area on its own, so `inline-size: 100%` is not
   // what is being read here — this box isolates the minimum. A `1fr` track's
-  // floor is `auto`, i.e. the item's min-content contribution, so the same
-  // ~916px pins the track open and the second column loses its 100px.
+  // floor is `auto`, i.e. the item's min-content contribution, so without the
+  // min the track is pinned open by the 900px child and the whole grid
+  // overflows its 600px.
   expect(root.w).toBeCloseTo(500, 0);
-  expect(sibling.w).toBeCloseTo(100, 0);
+  // Position again, not width: the second track is a rigid `100px`, so the
+  // sibling is 100 wide no matter what. It is where the track starts that moves.
+  expect(sibling.x + sibling.w).toBeLessThanOrEqual(box.x + box.w + 1);
 });
 
 test("shrinks on the block axis as a column-flex item", async ({ page }) => {
+  const box = await rect(page, "#flex-column-box");
   const root = await rect(page, "#flex-column");
   const sibling = await rect(page, "#flex-column-sibling");
 
@@ -408,7 +425,9 @@ test("shrinks on the block axis as a column-flex item", async ({ page }) => {
   // because `min-inline-size: 0` cannot cover it: a 900px-tall child makes a
   // horizontal splitter 900px tall inside this 200px column parent.
   expect(root.h).toBeCloseTo(160, 0);
-  expect(sibling.h).toBeCloseTo(40, 0);
+  // `flex: 0 0 40px` — 40px tall under every mutation, including the one that
+  // pushes it clean out of the box. Its bottom edge is the half that moves.
+  expect(sibling.y + sibling.h).toBeLessThanOrEqual(box.y + box.h + 1);
 });
 
 test("gives a vertical splitter a height in an auto-height parent", async ({ page }) => {
