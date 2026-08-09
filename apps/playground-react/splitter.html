@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CrossKit — splitter harness</title>
+  </head>
+  <body>
+    <!-- Splitter is almost entirely geometry, and jsdom reports every rect as
+         0x0 with no generated content, no :hover and no cursor. Everything the
+         unit suite cannot see is here: the panels tiling the container exactly,
+         the seam being a 1px ::before inside an 8px hit area, the RTL mirror,
+         a drag that leaves the bar, and a nested splitter whose bars must not
+         be claimed by the outer orientation. -->
+    <div id="root"></div>
+    <script type="module" src="/splitter.tsx"></script>
+  </body>
+</html>

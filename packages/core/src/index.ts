@@ -11,6 +11,7 @@ export * from "./behaviour/scroll-lock";
 export * from "./behaviour/collection";
 export * from "./behaviour/navigation";
 export * from "./behaviour/numeric";
+export * from "./behaviour/splitter";
 export * from "./behaviour/toast-queue";
 export * from "./motion/spring";
 export * from "./motion/animate";

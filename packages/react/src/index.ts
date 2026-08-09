@@ -69,6 +69,13 @@ export { Table, type TableProps } from "./table/table";
 export { Flex, flexGap, type FlexProps, type FlexGap } from "./layout/flex";
 export { Space, type SpaceProps, type SpaceSize, type SpaceAlign } from "./layout/space";
 export {
+  Splitter,
+  SplitterPanel,
+  type SplitterProps,
+  type SplitterPanelProps,
+  type SplitterLayout,
+} from "./layout/splitter";
+export {
   Skeleton,
   SkeletonAvatar,
   SkeletonButton,
