@@ -134,6 +134,79 @@ function Harness() {
         </Splitter>
       </div>
 
+      {/* The root as a FLEX ITEM, which is the only shape that can see the
+          root's own `inline-size: 100%` / `min-inline-size: 0` / `min-block-size:
+          0`. A block-level root in a block parent already fills its parent and
+          already shrinks, so it reports the same numbers either way — the
+          representative that cannot fail. Each box below carries a rigid
+          sibling, because "the splitter fits" and "the sibling keeps its size"
+          are the two halves of what these declarations buy. */}
+
+      {/* Small content: nothing here needs a minimum lifted, so this box isolates
+          `inline-size: 100%`. A flex item does not grow to fill its parent, so
+          without it the root sizes to "a"+bar+"b" and sits a few px wide. */}
+      <div id="flex-narrow-box" style={{ display: "flex", inlineSize: 600 }}>
+        <Splitter id="flex-narrow">
+          <Splitter.Panel>a</Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+        <div id="flex-narrow-sibling" style={{ flex: "0 0 100px", background: "#eee" }}>
+          sib
+        </div>
+      </div>
+
+      {/* Wide content: the root's automatic minimum size is its own min-content,
+          which the PANELS' `min-inline-size: 0` does not zero — so without the
+          root's own min the root pins at ~916px inside this 600px row and
+          pushes the sibling out. */}
+      <div id="flex-wide-box" style={{ display: "flex", inlineSize: 600 }}>
+        <Splitter id="flex-wide">
+          <Splitter.Panel>
+            <div style={{ inlineSize: 900, background: "#eee" }}>wide</div>
+          </Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+        <div id="flex-wide-sibling" style={{ flex: "0 0 100px", background: "#eee" }}>
+          sib
+        </div>
+      </div>
+
+      {/* The same automatic minimum, in a grid. A grid item stretches on its own,
+          so `inline-size: 100%` is not what is being read here — only the min. */}
+      <div
+        id="grid-box"
+        style={{ display: "grid", gridTemplateColumns: "1fr 100px", inlineSize: 600 }}
+      >
+        <Splitter id="grid-wide">
+          <Splitter.Panel>
+            <div style={{ inlineSize: 900, background: "#eee" }}>wide</div>
+          </Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+        <div id="grid-sibling" style={{ background: "#eee" }}>
+          sib
+        </div>
+      </div>
+
+      {/* The block axis of the same thing: a HORIZONTAL splitter as an item of a
+          column flex parent. Its main-axis minimum is its content's min-content
+          height, so a 900px-tall child makes the root 900px tall inside this
+          200px box unless the root says `min-block-size: 0`. */}
+      <div
+        id="flex-column-box"
+        style={{ display: "flex", flexDirection: "column", blockSize: 200 }}
+      >
+        <Splitter id="flex-column">
+          <Splitter.Panel>
+            <div style={{ blockSize: 900, background: "#eee" }}>tall</div>
+          </Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+        <div id="flex-column-sibling" style={{ flex: "0 0 40px", background: "#eee" }}>
+          sib
+        </div>
+      </div>
+
       <button id="before-focus" type="button">
         focus me first
       </button>

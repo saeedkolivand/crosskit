@@ -290,11 +290,13 @@ test("says a frozen bar does not move, in either layout", async ({ page }) => {
       .evaluate(el => getComputedStyle(el).cursor);
 
   expect(await cursor('#frozen [data-part="bar"]')).toBe("default");
-  // The vertical one is the half that needs the guard rather than the rule:
+  // The vertical one is the half that reads the guard rather than the rule.
   // `[data-orientation="vertical"]` and `[data-disabled]` are both (0,3,0) on
-  // this element, so without `:not([data-disabled])` the winner is whichever
-  // rule sits lower in the stylesheet — and a frozen bar showing `row-resize`
-  // invites a drag that cannot happen.
+  // this element, and the disabled rule is deliberately written FIRST in the
+  // stylesheet — so if `:not([data-disabled])` were dropped, the row-resize
+  // rule would win on source order and a frozen bar would advertise a drag that
+  // cannot happen. Deleting the guard alone turns this line red; that is the
+  // whole point of the ordering.
   expect(await cursor('#frozen-vertical [data-part="bar"]')).toBe("default");
 });
 
@@ -348,6 +350,65 @@ test("shrinks it even when the panel is not clipping its own content", async ({ 
   // place the min is the declaration doing the work.
   const panels = await rects(page, '#wide-visible > [data-part="panel"]');
   expect(panels[0]!.w).toBeLessThan(400);
+});
+
+/**
+ * The root's own `inline-size: 100%`, `min-inline-size: 0` and
+ * `min-block-size: 0` — all three invisible to every fixture above, because a
+ * block-level root in a BLOCK parent already fills its parent's inline size and
+ * already has no automatic minimum to lift. Only a flex or grid ITEM can tell a
+ * present declaration from a deleted one, so each of the four below is a
+ * separate box with a rigid sibling, and each isolates one declaration.
+ */
+
+test("fills the space a flex parent leaves it, not just its own content", async ({ page }) => {
+  const root = await rect(page, "#flex-narrow");
+  const sibling = await rect(page, "#flex-narrow-sibling");
+
+  // A flex item does not grow to fill its parent. Content here is "a", an 8px
+  // bar and "b", so without the root's own `inline-size: 100%` this is a ~20px
+  // sliver in a 600px row — and no minimum can produce the 500 instead, which
+  // is what makes this box the one that reads that declaration alone.
+  expect(root.w).toBeCloseTo(500, 0);
+  expect(sibling.w).toBeCloseTo(100, 0);
+});
+
+test("shrinks below its own content as a flex item, without displacing a sibling", async ({
+  page,
+}) => {
+  const root = await rect(page, "#flex-wide");
+  const sibling = await rect(page, "#flex-wide-sibling");
+
+  // The panels already say `min-inline-size: 0`, and it is not enough: that
+  // sets each panel's floor, it does not zero the panel's min-content
+  // CONTRIBUTION to the root's intrinsic size. The root's automatic minimum
+  // size is therefore still ~916px here, which overflows the 600px row and
+  // pushes the 100px sibling out of it.
+  expect(root.w).toBeCloseTo(500, 0);
+  expect(sibling.w).toBeCloseTo(100, 0);
+});
+
+test("shrinks below its own content as a grid item too", async ({ page }) => {
+  const root = await rect(page, "#grid-wide");
+  const sibling = await rect(page, "#grid-sibling");
+
+  // A grid item stretches to its area on its own, so `inline-size: 100%` is not
+  // what is being read here — this box isolates the minimum. A `1fr` track's
+  // floor is `auto`, i.e. the item's min-content contribution, so the same
+  // ~916px pins the track open and the second column loses its 100px.
+  expect(root.w).toBeCloseTo(500, 0);
+  expect(sibling.w).toBeCloseTo(100, 0);
+});
+
+test("shrinks on the block axis as a column-flex item", async ({ page }) => {
+  const root = await rect(page, "#flex-column");
+  const sibling = await rect(page, "#flex-column-sibling");
+
+  // The same automatic minimum, on the other axis, which needs its own fixture
+  // because `min-inline-size: 0` cannot cover it: a 900px-tall child makes a
+  // horizontal splitter 900px tall inside this 200px column parent.
+  expect(root.h).toBeCloseTo(160, 0);
+  expect(sibling.h).toBeCloseTo(40, 0);
 });
 
 test("gives a vertical splitter a height in an auto-height parent", async ({ page }) => {

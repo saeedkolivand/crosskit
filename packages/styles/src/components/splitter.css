@@ -2,6 +2,32 @@
 @layer ck.components {
   [data-scope="splitter"][data-part="root"] {
     display: flex;
+    /* All three only bite when the root is NOT a block-level box in a block
+       container — i.e. when a consumer makes it a flex or grid ITEM, which is
+       the ordinary way a splitter sits in a page shell.
+
+       The panels' own `min-inline-size: 0` does NOT make these redundant. That
+       declaration sets each PANEL's floor; it does not zero the panel's
+       min-content CONTRIBUTION to the root's intrinsic size. So the root's own
+       automatic minimum size is still the widest child's min-content, and as a
+       flex/grid item the root refuses to shrink below it: measured at 916px
+       inside a 600px flex row beside a 100px sibling, overflowing the parent
+       and shoving the sibling out of the row. `min-inline-size: 0` takes that
+       to 500px and the panel clips instead. `min-block-size: 0` is the same
+       story on the other axis — a horizontal splitter with a 900px-tall child
+       renders 900px tall inside a 200px `flex-direction: column` parent.
+
+       `inline-size: 100%` is the complementary half and not a duplicate of it:
+       a flex item does not grow to fill its parent, so without it the root
+       sizes to its own content — narrow beside its sibling when the content is
+       small, and 916px → 600px (still crowding the sibling) when it is wide.
+       Only the pair reaches 500px.
+
+       A splitter that is a block child of a BLOCK parent cannot tell any of
+       this apart, which is why the pinning fixtures are flex/grid items. */
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
   }
   [data-scope="splitter"][data-part="root"][data-orientation="vertical"] {
     flex-direction: column;
@@ -13,7 +39,11 @@
 
        `block-size: 100%` resolves against a definite parent and resolves to
        `auto` against an auto-height one, which is exactly the split needed: the
-       min only bites in the second case. */
+       min only bites in the second case.
+
+       This `min-block-size` beats the base rule's `min-block-size: 0` on
+       specificity — (0,3,0) against (0,2,0) — not on source order, so moving
+       either rule cannot swap them. */
     block-size: 100%;
     min-block-size: 12rem;
   }
@@ -47,18 +77,25 @@
     touch-action: none;
     cursor: col-resize;
   }
-  /* Guarded so the two rules cannot both match a frozen vertical bar. Unguarded
-     they are both (0,3,0) — three attribute selectors each — so which cursor
-     wins is decided by nothing but which of them sits lower in this file, and
-     the losing outcome is a frozen bar advertising itself as a resize handle.
-     Mutual exclusion settles it wherever the rules end up; raising one side's
-     specificity would only re-decide the same tie, and re-decide it again the
-     next time a third state selector is added. */
-  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]:not([data-disabled]) {
-    cursor: row-resize;
-  }
+  /* The frozen rule is written FIRST on purpose, so source order is the WEAKER
+     statement here and `:not([data-disabled])` below is the load-bearing one.
+
+     On a frozen vertical bar both rules would match. Unguarded they are both
+     (0,3,0) — three attribute selectors each — so the winner would be whichever
+     sits lower in this file, and with this one first that is the row-resize
+     rule: a frozen bar advertising itself as a resize handle. The `:not()` is
+     the only thing preventing it. Written the other way round the guard would
+     be redundant with the ordering and could be deleted with every test still
+     green, which is exactly how a guard rots.
+
+     Mutual exclusion settles the tie wherever the rules end up; raising one
+     side's specificity would only re-decide the same tie, and re-decide it
+     again the next time a third state selector is added. */
   [data-scope="splitter"][data-part="bar"][data-disabled] {
     cursor: default;
+  }
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]:not([data-disabled]) {
+    cursor: row-resize;
   }
 
   /* The visible seam is generated content on the bar, so there is one node per
