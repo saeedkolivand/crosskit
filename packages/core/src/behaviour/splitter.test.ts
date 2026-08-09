@@ -84,11 +84,48 @@ describe("resolvePanelSizes", () => {
   it("still refuses to leave a non-collapsible panel at zero", () => {
     // The control for the assertion above: same input, collapsibility removed.
     // Only the floor differs, so a `floorOf` that ignored `collapsible` would
-    // make both of these read the same and neither could catch it. The exact
-    // number is not the contract — clamping runs before the normalise, so a
-    // declared row that was already over budget comes out scaled — but "not
-    // zero" is.
+    // make both of these read the same and neither could catch it.
     expect(resolvePanelSizes([0, 100], [C({ min: 20 }), C()])[0]).toBeGreaterThan(0);
+  });
+
+  it("keeps a capped panel inside its cap when EVERY panel is declared", () => {
+    // The all-declared sibling of the undeclared case below, and the one the
+    // normalise used to defeat: there is no undeclared panel to absorb the
+    // difference, so the row does not sum to 100 and a plain
+    // `value / total * 100` scales the capped panel straight back out. 30 and 10
+    // against a 30 ceiling came out [75, 25] — the bar beside it then reported
+    // `aria-valuenow="75"` against `aria-valuemax="30"`.
+    //
+    // The representative matters: two panels declaring the SAME size scale to
+    // 50/50 and stay inside a 40 cap by luck, so a row where the two differ is
+    // the only one that can tell the two implementations apart.
+    const constraints = [C({ max: 30 }), C()];
+    expect(resolvePanelSizes([30, 10], constraints)).toEqual([30, 70]);
+    expect(panelBounds(resolvePanelSizes([30, 10], constraints), 0, constraints)).toEqual({
+      min: 0,
+      max: 30,
+    });
+
+    // And the shape a pixel row lands in: two panels each asking 300px of a
+    // 1000px container, the first capped at 400px.
+    expect(resolvePanelSizes([30, 30], [C({ max: 40 }), C()])).toEqual([40, 60]);
+  });
+
+  it("keeps a floored panel above its floor through the same normalise", () => {
+    // The other direction. 0 clamps up to 20, which takes the row to 120, and
+    // scaling that back to 100 put the panel at 16.67 — under the `min` the bar
+    // beside it advertises.
+    expect(resolvePanelSizes([0, 100], [C({ min: 20 }), C()])).toEqual([20, 80]);
+  });
+
+  it("keeps the bounds rather than the sum when the two cannot both hold", () => {
+    // Two panels each demanding 70 leaves no answer that is both inside every
+    // bound and summing to 100. The bound wins, because it is the half a screen
+    // reader reads: at [50, 50] `aria-valuenow` sits under an `aria-valuemin` of
+    // 70, which is invalid ARIA rather than merely a wrong pixel. The rendered
+    // layout is unaffected either way — `flex-grow` renormalises whatever it is
+    // given, so 70/70 and 50/50 paint the same.
+    expect(resolvePanelSizes([10, 10], [C({ min: 70 }), C({ min: 70 })])).toEqual([70, 70]);
   });
 
   it("clamps an UNDECLARED panel's even share to its own max", () => {

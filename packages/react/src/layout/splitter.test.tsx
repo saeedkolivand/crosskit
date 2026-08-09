@@ -213,6 +213,33 @@ describe("Splitter bar ARIA", () => {
     expect(bars()[0]).toHaveAttribute("aria-valuenow", "33");
   });
 
+  it("never reports a value outside the window it reports beside it", () => {
+    // The invariant the three attributes make together, and the one a defect in
+    // the size arithmetic surfaces as: `aria-valuenow` has to sit inside
+    // `aria-valuemin`..`aria-valuemax`, or a screen reader is being handed a
+    // contradiction it may refuse to announce.
+    //
+    // Every panel declared, and the two declared sizes DIFFERENT: with no
+    // undeclared panel to absorb the difference the row does not sum to 100, and
+    // the normalise back to 100 used to scale the capped panel past its own
+    // ceiling — `aria-valuenow="75"` against `aria-valuemax="30"`. Two panels
+    // declaring the same size scale to 50/50 and stay inside a 30 cap by
+    // accident, which is why they are not the representative here.
+    render(
+      <Splitter>
+        <Splitter.Panel defaultSize="30%" max="30%">
+          a
+        </Splitter.Panel>
+        <Splitter.Panel defaultSize="10%">b</Splitter.Panel>
+      </Splitter>
+    );
+    const bar = bars()[0]!;
+    const value = (name: string) => Number(bar.getAttribute(name));
+    expect(value("aria-valuenow")).toBeGreaterThanOrEqual(value("aria-valuemin"));
+    expect(value("aria-valuenow")).toBeLessThanOrEqual(value("aria-valuemax"));
+    expect(bar).toHaveAttribute("aria-valuenow", "30");
+  });
+
   it("is a tab stop, and not a dead one when frozen", () => {
     render(
       <Splitter>
