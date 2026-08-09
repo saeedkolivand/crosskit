@@ -66,6 +66,34 @@ function Harness() {
         </Splitter>
       </div>
 
+      {/* The same vertical splitter in a parent that already has a height. The
+          12rem is a fallback for the auto-height case above, not a size — and a
+          component that renders 192px inside a 320px box is the ordinary way
+          anyone uses it going wrong. */}
+      <div id="vertical-tall-box" style={{ blockSize: 320 }}>
+        <Splitter id="vertical-tall" layout="vertical">
+          <Splitter.Panel>a</Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+      </div>
+
+      {/* A frozen bar, in both layouts. The cursor is the only thing that says
+          "this one does not move" before the pointer is pressed, and the
+          vertical one is where the disabled rule ties with the orientation rule
+          on specificity. */}
+      <div style={{ inlineSize: 600 }}>
+        <Splitter id="frozen">
+          <Splitter.Panel resizable={false}>a</Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+      </div>
+      <div style={{ inlineSize: 600 }}>
+        <Splitter id="frozen-vertical" layout="vertical">
+          <Splitter.Panel resizable={false}>a</Splitter.Panel>
+          <Splitter.Panel>b</Splitter.Panel>
+        </Splitter>
+      </div>
+
       {/* Horizontal inside vertical. The inner panels are descendants of the
           outer root, so the measurement query and every CSS rule have to stop
           at the boundary. */}

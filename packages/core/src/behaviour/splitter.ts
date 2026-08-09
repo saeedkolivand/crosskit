@@ -94,7 +94,8 @@ const floorOf = (constraint: SplitterConstraint): number =>
 
 /**
  * Starting percentages: declared entries honoured, `undefined` entries sharing
- * what is left, and the whole array normalised to sum 100.
+ * what is left inside their own bounds, and the whole array normalised to sum
+ * 100.
  *
  * The normalise is the half that is easy to skip and impossible to see: two
  * panels declared `"30%"` render 50/50 either way, because `flex-grow`
@@ -108,20 +109,46 @@ export function resolvePanelSizes(
 ): number[] {
   if (declared.length === 0) return [];
 
+  // The one clamp every path goes through, declared or shared. It is also what
+  // keeps a share non-negative: over-declared panels leave a negative pool, and
+  // a negative number in `flex-grow` is invalid — flexbox drops the whole
+  // declaration back to the initial `1` and the panel renders at a size nothing
+  // in the state explains.
+  const bound = (index: number, value: number): number =>
+    clamp(value, floorOf(at(constraints, index)), at(constraints, index).max);
+
   const sizes = declared.map((value, index) =>
-    value === undefined
-      ? undefined
-      : clamp(value, floorOf(at(constraints, index)), at(constraints, index).max)
+    value === undefined ? undefined : bound(index, value)
   );
 
-  const taken = sizes.reduce<number>((sum, value) => sum + (value ?? 0), 0);
-  const free = sizes.filter(value => value === undefined).length;
-  // Never negative: over-declared panels leave nothing to share rather than
-  // handing the undeclared ones a negative grow factor, which flexbox reads as
-  // invalid and drops back to the fallback.
-  const share = free > 0 ? Math.max(0, 100 - taken) / free : 0;
+  let pool = 100 - sizes.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  let open = sizes.flatMap((value, index) => (value === undefined ? [index] : []));
 
-  const filled = sizes.map(value => value ?? share);
+  // Water-filled rather than divided once. A panel that declares no size still
+  // declares its own `min` and `max`, and an even share that ignores them lands
+  // the panel outside the very window `panelBounds` reports for the bar beside
+  // it — `aria-valuenow` under `aria-valuemin`, which is invalid ARIA a screen
+  // reader may refuse to announce rather than merely untidy. Dividing once and
+  // clamping afterwards is not enough either: the clamp changes the total, and
+  // the normalise below scales the panel straight back out of its own window.
+  // Each pass pins at least one panel at a bound and a pinned panel never
+  // reopens, so this is at most one pass per undeclared panel.
+  while (open.length > 0) {
+    const share = pool / open.length;
+    const pinned = open.filter(index => bound(index, share) !== share);
+    if (pinned.length === 0) {
+      for (const index of open) sizes[index] = share;
+      break;
+    }
+    for (const index of pinned) {
+      const value = bound(index, share);
+      sizes[index] = value;
+      pool -= value;
+    }
+    open = open.filter(index => !pinned.includes(index));
+  }
+
+  const filled = sizes as number[];
   const total = filled.reduce((sum, value) => sum + value, 0);
   // A total of zero has no ratio to preserve — every panel collapsed, or none
   // declared inside a zero budget. An even split is the only defined answer.
@@ -234,15 +261,23 @@ export function splitterKey(
   if (options.layout === "vertical") {
     // Down grows the leading (upper) panel, up shrinks it. Left and Right are
     // dropped so they keep doing whatever the page does with them.
-    const key =
-      event.key === "ArrowDown"
-        ? "ArrowRight"
-        : event.key === "ArrowUp"
-          ? "ArrowLeft"
-          : event.key === "ArrowLeft" || event.key === "ArrowRight"
-            ? ""
-            : event.key;
-    return numericKey({ ...event, key }, value, range, { rtl: false });
+    //
+    // PageUp and PageDown are remapped for the same reason and cannot be passed
+    // through: `numericKey` grows on PageUp because that is what a slider does,
+    // which on a vertical splitter would send the bar the OPPOSITE way to
+    // ArrowUp and to Shift+ArrowUp — the same gesture, one key apart, moving the
+    // boundary in two directions.
+    const VERTICAL: Record<string, string> = {
+      ArrowDown: "ArrowRight",
+      ArrowUp: "ArrowLeft",
+      PageDown: "PageUp",
+      PageUp: "PageDown",
+      ArrowLeft: "",
+      ArrowRight: "",
+    };
+    return numericKey({ ...event, key: VERTICAL[event.key] ?? event.key }, value, range, {
+      rtl: false,
+    });
   }
 
   // Up and Down are not a horizontal splitter's keys and must keep scrolling.

@@ -91,6 +91,44 @@ describe("resolvePanelSizes", () => {
     expect(resolvePanelSizes([0, 100], [C({ min: 20 }), C()])[0]).toBeGreaterThan(0);
   });
 
+  it("clamps an UNDECLARED panel's even share to its own max", () => {
+    // The half that is easy to miss: a panel with no `size` still has a `max`,
+    // and 50/50 puts the second panel 20 points over a ceiling it was given.
+    // Clamping only the declared entries leaves this at [50, 50] — and then
+    // `panelBounds` reports min 70 for the bar while `aria-valuenow` says 50,
+    // which is invalid ARIA rather than merely a wrong pixel.
+    expect(resolvePanelSizes([undefined, undefined], [C(), C({ max: 30 })])).toEqual([70, 30]);
+  });
+
+  it("clamps an UNDECLARED panel's even share up to its own min", () => {
+    // Both directions, because a clamp written as a single `Math.min` passes
+    // the max case above and this one still comes out 33/33/33.
+    expect(
+      resolvePanelSizes([undefined, undefined, undefined], [C({ min: 60 }), C(), C()])
+    ).toEqual([60, 20, 20]);
+  });
+
+  it("re-shares what a pinned panel would not take, rather than dividing once", () => {
+    // Three panels, one capped at 10. Dividing once and clamping gives
+    // [33.3, 33.3, 10] — a total of 76.7 that the normalise then scales back to
+    // [43.5, 43.5, 13], putting the capped panel over its ceiling again. The
+    // 45 here is the 90 left over after the cap, halved.
+    expect(
+      resolvePanelSizes([undefined, undefined, undefined], [C(), C(), C({ max: 10 })])
+    ).toEqual([45, 45, 10]);
+  });
+
+  it("leaves nothing to share rather than a negative share", () => {
+    // 140 declared against a budget of 100, so the leftover is −40. A negative
+    // number in `flex-grow` is invalid: flexbox drops the whole declaration back
+    // to the initial `1` and the panel renders at a size nothing in the state
+    // explains. The shared entries go through the same clamp the declared ones
+    // do, so the floor is a consequence of the bound rather than a special case.
+    const sizes = resolvePanelSizes([80, 60, undefined], free(3));
+    expect(sizes[2]).toBe(0);
+    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(0);
+  });
+
   it("falls back to an even split when nothing sums to anything", () => {
     expect(resolvePanelSizes([0, 0], free(2))).toEqual([50, 50]);
   });
@@ -267,7 +305,34 @@ describe("splitterKey", () => {
       splitterKey(KEY("ArrowRight", { shiftKey: true }), 50, BOUNDS, { layout: "horizontal" })
     ).toBe(60);
     expect(splitterKey(KEY("PageUp"), 50, BOUNDS, { layout: "horizontal" })).toBe(60);
-    expect(splitterKey(KEY("PageDown"), 50, BOUNDS, { layout: "vertical" })).toBe(40);
+  });
+
+  it("sends a vertical bar's page keys the same way as its arrows", () => {
+    // The bug this replaces: the vertical branch remapped the four arrows and
+    // handed the page keys straight through, so PageDown ran `numericKey`'s
+    // slider meaning — bigger — while ArrowDown and Shift+ArrowDown ran the
+    // splitter's, which is that Down grows the UPPER panel. The same gesture one
+    // key apart moved the boundary in two directions.
+    //
+    // Asserted against the arrow rather than against a literal, because a
+    // literal is exactly what encoded the bug last time: whichever way the pair
+    // points, the three keys have to agree.
+    const down = splitterKey(KEY("ArrowDown"), 50, BOUNDS, { layout: "vertical" })!;
+    const bigDown = splitterKey(KEY("ArrowDown", { shiftKey: true }), 50, BOUNDS, {
+      layout: "vertical",
+    })!;
+    const pageDown = splitterKey(KEY("PageDown"), 50, BOUNDS, { layout: "vertical" })!;
+    const pageUp = splitterKey(KEY("PageUp"), 50, BOUNDS, { layout: "vertical" })!;
+
+    expect(Math.sign(down - 50)).toBe(1);
+    expect(Math.sign(bigDown - 50)).toBe(Math.sign(down - 50));
+    expect(Math.sign(pageDown - 50)).toBe(Math.sign(down - 50));
+    expect(Math.sign(pageUp - 50)).toBe(-Math.sign(down - 50));
+    // And a page key is still the bigger bite, or "agrees with the arrow" would
+    // be satisfied by mapping both to the same 1% step.
+    expect(Math.abs(pageDown - 50)).toBeGreaterThan(Math.abs(down - 50));
+    expect(pageDown).toBe(60);
+    expect(pageUp).toBe(40);
   });
 
   it("jumps to the reachable extremes with Home and End, in both layouts", () => {

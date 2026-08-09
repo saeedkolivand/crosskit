@@ -2,21 +2,20 @@
 @layer ck.components {
   [data-scope="splitter"][data-part="root"] {
     display: flex;
-    inline-size: 100%;
-    /* A flex item's automatic minimum size is its content's min-content size, so
-       a nested splitter holding anything wide refuses to shrink and pushes its
-       own parent out. Both axes, unconditionally, on the root as well as the
-       panels. */
-    min-inline-size: 0;
-    min-block-size: 0;
   }
   [data-scope="splitter"][data-part="root"][data-orientation="vertical"] {
     flex-direction: column;
-    /* Panels are `flex-basis: 0`, so in an auto-height parent every one of them
-       resolves to zero and the whole component renders invisibly with no error
-       anywhere. An arbitrary but non-zero default is the fix, and it is safe to
-       override because everything here ships inside a cascade layer. */
-    block-size: 12rem;
+    /* A FALLBACK height, not a height. Panels are `flex-basis: 0`, so in an
+       auto-height parent every one of them resolves to zero and the whole
+       component renders invisibly with no error anywhere — but a parent that
+       already has a height is the ordinary case, and 12rem as a definite size
+       would ignore it and render 192px inside a 600px box.
+
+       `block-size: 100%` resolves against a definite parent and resolves to
+       `auto` against an auto-height one, which is exactly the split needed: the
+       min only bites in the second case. */
+    block-size: 100%;
+    min-block-size: 12rem;
   }
   /* Only while dragging, so ordinary selection still works — a drag across two
      panels otherwise selects every word between them. */
@@ -25,10 +24,6 @@
   }
 
   [data-scope="splitter"][data-part="panel"] {
-    /* Explicit, because the reset keys on `[data-scope][data-part]` and a part
-       that inherits `content-box` is a border wider than the number that
-       positioned it. */
-    box-sizing: border-box;
     /* The percentage lives in `flex-grow` against a ZERO basis, so the bars
        claim their own size first and the panels divide what is genuinely left.
        In `flex-basis` it would need `calc(33% - Npx)` with N derived from the
@@ -45,7 +40,6 @@
   }
 
   [data-scope="splitter"][data-part="bar"] {
-    box-sizing: border-box;
     position: relative;
     flex: 0 0 var(--ck-splitter-bar-size, 0.5rem);
     /* Without this the browser claims the drag as a scroll gesture before the
@@ -53,7 +47,14 @@
     touch-action: none;
     cursor: col-resize;
   }
-  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"] {
+  /* Guarded so the two rules cannot both match a frozen vertical bar. Unguarded
+     they are both (0,3,0) — three attribute selectors each — so which cursor
+     wins is decided by nothing but which of them sits lower in this file, and
+     the losing outcome is a frozen bar advertising itself as a resize handle.
+     Mutual exclusion settles it wherever the rules end up; raising one side's
+     specificity would only re-decide the same tie, and re-decide it again the
+     next time a third state selector is added. */
+  [data-scope="splitter"][data-part="bar"][data-orientation="vertical"]:not([data-disabled]) {
     cursor: row-resize;
   }
   [data-scope="splitter"][data-part="bar"][data-disabled] {
@@ -83,11 +84,19 @@
     margin-inline-start: 0;
   }
 
-  /* Guarded rather than reordered: the active rule below is (0,3,0) and a bare
-     `:hover` on the same part is (0,3,0) too, so the later one wins and a bar
-     being dragged repaints in the hover colour whenever the pointer happens to
-     be over it — which is most of a drag. Guarding survives someone reordering
-     this file; reordering does not. */
+  /* Guarded rather than left to source order. A bare `:hover` here would be
+     (0,3,1) — two attributes plus `:hover`, plus the pseudo-element — and the
+     `[data-active]` rule below is (0,3,1) as well: three attributes and the
+     pseudo-element. An exact tie, so the only thing separating them is that the
+     active rule happens to be written second.
+
+     Both match for most of a drag, because the pointer is usually over the bar
+     it is dragging. Move either rule past the other — or add a third state rule
+     between them — and a bar being dragged repaints in the hover colour instead
+     of the active one. `:not([data-active])` makes the two mutually exclusive,
+     which no reordering can undo. `:not([data-disabled])` is not a cascade
+     question at all — a bar that cannot move must not light up under the
+     pointer as though it could. */
   [data-scope="splitter"][data-part="bar"]:hover:not([data-active]):not([data-disabled])::before {
     background: var(--ck-border-hover);
   }
@@ -97,6 +106,11 @@
 
   [data-scope="splitter"][data-part="bar"]:focus-visible {
     outline: 2px solid var(--ck-ring);
+    /* Drawn INSIDE the bar. An outline is painted outside the border box, and
+       the bar is 8px wide with an `overflow: hidden` panel hard against each
+       edge — at the default offset of 0 the ring lands on the panels, which
+       clip it, and the focused bar shows two clipped slivers instead of a
+       ring. A negative offset is the only way to keep it in the 8px it has. */
     outline-offset: -2px;
   }
 }

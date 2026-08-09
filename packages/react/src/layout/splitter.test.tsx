@@ -18,6 +18,23 @@ const Pair = (props: Record<string, unknown> = {}) => (
   </Splitter>
 );
 
+// jsdom reports every rect as 0x0, and everything that turns a length into a
+// percentage — the px grammar, the drag delta, the callback payload — divides by
+// the measured length. Without a stub those paths take their "unmeasured" branch
+// and are unreachable from here. Module scope, because three describes need it.
+const realRect = Element.prototype.getBoundingClientRect;
+/** Give every panel a `size`×`size` box and every bar none. Call before render. */
+const layOut = (size: number) => {
+  Element.prototype.getBoundingClientRect = function () {
+    return this.getAttribute("data-part") === "panel"
+      ? ({ width: size, height: size } as DOMRect)
+      : ({ width: 0, height: 0 } as DOMRect);
+  };
+};
+afterEach(() => {
+  Element.prototype.getBoundingClientRect = realRect;
+});
+
 describe("Splitter structure", () => {
   it("interleaves one bar fewer than it has panels", () => {
     render(
@@ -63,6 +80,36 @@ describe("Splitter structure", () => {
       </Splitter>
     );
     expect(shares()).toEqual([20, 40, 40]);
+  });
+
+  it("reads a bare number as pixels against the measured length", () => {
+    // The whole px half of the grammar hangs off the mount-time measurement, and
+    // with the length unmeasured `parsePanelSize` deliberately says nothing and
+    // this falls back to an even split. 25/75 is what tells the two apart —
+    // a symmetric fixture reads the same whether the measurement happened or not.
+    layOut(100); // two panels, so 200px of resizable length
+    render(
+      <Splitter>
+        <Splitter.Panel size={50}>a</Splitter.Panel>
+        <Splitter.Panel>b</Splitter.Panel>
+      </Splitter>
+    );
+    expect(shares()).toEqual([25, 75]);
+  });
+
+  it("reads a px string on min against the same length", () => {
+    layOut(100);
+    render(
+      <Splitter>
+        <Splitter.Panel min="150px">a</Splitter.Panel>
+        <Splitter.Panel>b</Splitter.Panel>
+      </Splitter>
+    );
+    // 150 of 200 is 75%, so the floor pushes the panel off the even split and
+    // the bar reports it. Unmeasured, the min parses to nothing: 50/50 and a
+    // valuemin of 0.
+    expect(shares()).toEqual([75, 25]);
+    expect(bars()[0]).toHaveAttribute("aria-valuemin", "75");
   });
 
   it("keeps the panel's own props off the DOM", () => {
@@ -231,14 +278,20 @@ describe("Splitter keyboard", () => {
     expect(shares()).toEqual([70, 30]);
   });
 
-  it("does nothing at all through a frozen bar", () => {
+  it("does not even claim the key through a frozen bar", () => {
     render(
       <Splitter>
         <Splitter.Panel resizable={false}>a</Splitter.Panel>
         <Splitter.Panel>b</Splitter.Panel>
       </Splitter>
     );
-    fireEvent.keyDown(bars()[0]!, { key: "ArrowRight" });
+    const scrolled = fireEvent.keyDown(bars()[0]!, { key: "ArrowRight" });
+    // The sizes are the assertion that cannot fail: `resizePanels` freezes the
+    // pair by itself, so they stay 50/50 with the adapter's guard deleted and
+    // pin nothing. What the guard is for is visible one level up — a frozen bar
+    // that still calls preventDefault swallows the keystroke, and the key does
+    // nothing anywhere on the page rather than doing nothing here.
+    expect(scrolled).toBe(true);
     expect(shares()).toEqual([50, 50]);
   });
 
@@ -306,6 +359,54 @@ describe("Splitter collapse", () => {
     expect(shares()).toEqual([20, 80]);
   });
 
+  it("closes the TRAILING panel too, which is the other half of collapsible", () => {
+    render(
+      <Splitter>
+        <Splitter.Panel>a</Splitter.Panel>
+        <Splitter.Panel min="20%" collapsible>
+          b
+        </Splitter.Panel>
+      </Splitter>
+    );
+    // `true` means from either side, and every other collapse assertion here is
+    // about the leading panel — so a `collapsible` that only ever set `start`
+    // would pass all of them. End walks to the far bound, which is the whole
+    // budget only when the trailing panel may be squashed out of existence.
+    fireEvent.keyDown(bars()[0]!, { key: "End" });
+    expect(shares()).toEqual([100, 0]);
+    expect(panels()[1]!.getAttribute("data-collapsed")).toBe("");
+  });
+
+  it("takes the object form, one named side at a time", () => {
+    render(
+      <Splitter>
+        <Splitter.Panel>a</Splitter.Panel>
+        <Splitter.Panel min="20%" collapsible={{ end: true }}>
+          b
+        </Splitter.Panel>
+      </Splitter>
+    );
+    fireEvent.keyDown(bars()[0]!, { key: "End" });
+    expect(shares()).toEqual([100, 0]);
+  });
+
+  it("leaves the side the object form did not name shut", () => {
+    render(
+      <Splitter>
+        <Splitter.Panel>a</Splitter.Panel>
+        <Splitter.Panel min="20%" collapsible={{ start: true }}>
+          b
+        </Splitter.Panel>
+      </Splitter>
+    );
+    // The control for the test above, and the reason the object form is not a
+    // boolean: `start` on the trailing panel names the bar AFTER it, of which
+    // there is none. An implementation that read any object as "both sides"
+    // passes the previous test and collapses this one to zero.
+    fireEvent.keyDown(bars()[0]!, { key: "End" });
+    expect(shares()).toEqual([80, 20]);
+  });
+
   it("reports zero as a reachable value once the panel may collapse", () => {
     render(<Collapsible />);
     fireEvent.keyDown(bars()[0]!, { key: "Enter" });
@@ -322,6 +423,20 @@ describe("Splitter callbacks", () => {
     render(<Pair onResizeEnd={onResizeEnd} />);
     fireEvent.keyDown(bars()[0]!, { key: "ArrowRight" });
     expect(onResizeEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands onResizeEnd pixels, not the percentages it works in", () => {
+    layOut(100); // 200px of resizable length
+    const onResizeEnd = vi.fn();
+    render(<Pair onResizeEnd={onResizeEnd} />);
+    fireEvent.keyDown(bars()[0]!, { key: "ArrowRight" });
+    // The prop is documented as px and everything inside is percent, so the one
+    // conversion between them is the whole contract. A call-count assertion
+    // cannot tell 102 from 51 from 0.51, and the unstubbed measurement makes all
+    // three of them zero — which is why this fixture has a length at all.
+    const payload = onResizeEnd.mock.calls[0]![0] as number[];
+    expect(payload[0]).toBeCloseTo(102, 6);
+    expect(payload[1]).toBeCloseTo(98, 6);
   });
 
   it("stays quiet on a key that moved nothing", () => {
@@ -385,6 +500,22 @@ describe("Splitter controlled sizes", () => {
     expect(onResize).toHaveBeenCalledTimes(1);
   });
 
+  it("lets what was dragged win over defaultSize", () => {
+    render(
+      <Splitter>
+        <Splitter.Panel defaultSize="20%">a</Splitter.Panel>
+        <Splitter.Panel>b</Splitter.Panel>
+      </Splitter>
+    );
+    fireEvent.keyDown(bars()[0]!, { key: "ArrowRight" });
+    // The second hop of `size ?? dragged ?? defaultSize`. Only the first hop was
+    // pinned: `defaultSize` ahead of the dragged state still honours the prop on
+    // the first render, so the existing defaultSize assertion — which presses
+    // nothing — passes either way. With the order swapped the panel snaps back
+    // to 20 on the very next render and the bar cannot be moved at all.
+    expect(shares()).toEqual([21, 79]);
+  });
+
   it("drives an uncontrolled sibling from state while the controlled one holds", () => {
     render(
       <Splitter>
@@ -399,22 +530,6 @@ describe("Splitter controlled sizes", () => {
 });
 
 describe("Splitter pointer drag", () => {
-  // jsdom reports every rect as 0x0, and the whole pointer path divides by the
-  // measured length — so without a stub the guard fires and nothing runs.
-  // Stubbing the measurement is the smallest thing that makes the delta
-  // arithmetic reachable here; the geometry it feeds is Playwright's job.
-  const real = Element.prototype.getBoundingClientRect;
-  const layOut = (width: number) => {
-    Element.prototype.getBoundingClientRect = function () {
-      return this.getAttribute("data-part") === "panel"
-        ? ({ width, height: width } as DOMRect)
-        : ({ width: 0, height: 0 } as DOMRect);
-    };
-  };
-  afterEach(() => {
-    Element.prototype.getBoundingClientRect = real;
-  });
-
   const press = (bar: HTMLElement, coord: number) =>
     fireEvent.pointerDown(bar, { button: 0, pointerId: 1, clientX: coord, clientY: coord });
   const move = (bar: HTMLElement, coord: number) =>
@@ -502,8 +617,9 @@ describe("Splitter pointer drag", () => {
     expect(root().hasAttribute("data-dragging")).toBe(false);
   });
 
-  it("does not drag a frozen bar", () => {
+  it("never starts a gesture on a frozen bar", () => {
     layOut(100);
+    const capture = vi.spyOn(Element.prototype, "setPointerCapture");
     render(
       <Splitter>
         <Splitter.Panel resizable={false}>a</Splitter.Panel>
@@ -512,6 +628,13 @@ describe("Splitter pointer drag", () => {
     );
     press(bars()[0]!, 100);
     move(bars()[0]!, 180);
+    // Again the sizes hold whatever the adapter does, so the capture is the
+    // assertion with something to say: a bar that captures the pointer and then
+    // moves nothing swallows every pointer event on the page until it is
+    // released, and paints the whole root as dragging while it does.
+    expect(capture).not.toHaveBeenCalled();
+    expect(root().hasAttribute("data-dragging")).toBe(false);
     expect(shares()).toEqual([50, 50]);
+    capture.mockRestore();
   });
 });

@@ -133,6 +133,16 @@ const seamBox = (page: Page, selector: string) =>
       };
     });
 
+/** The `::before` seam's two physical inline margins, as the browser resolves them. */
+const seamMargins = (page: Page, selector: string) =>
+  page
+    .locator(selector)
+    .first()
+    .evaluate(el => {
+      const style = getComputedStyle(el, "::before");
+      return { start: style.marginLeft, end: style.marginRight };
+    });
+
 for (const [id, direction] of [
   ["tile", "ltr"],
   ["rtl", "rtl"],
@@ -141,13 +151,23 @@ for (const [id, direction] of [
     const bar = await rect(page, `#${id} [data-part="bar"]`);
     const seam = await seamBox(page, `#${id} [data-part="bar"]`);
 
-    // Centred, and spanning the bar on the other axis. Both directions are
-    // asserted because the centring is what a missing RTL mirror would break —
-    // though a symmetric centring is symmetric either way, so what this really
-    // pins is that the seam is where the eye expects it in both, and that a
-    // future `inset-inline-start: 0` or a stray `translate` shows up.
+    // Centred, and spanning the bar on the other axis. This half is deliberately
+    // invariant — a centred 1px line in an 8px bar is centred in either
+    // direction — so it catches a future `inset-inline-start: 0` or a stray
+    // `translate` and nothing about RTL.
     expect(seam.x + seam.w / 2).toBeCloseTo(bar.w / 2, 1);
     expect(seam.h).toBeCloseTo(bar.h, 1);
+
+    // This half is what the RTL run earns. `margin-inline-start` has to land on
+    // the RIGHT margin under `dir="rtl"`; a physical `margin-left: -0.5px`
+    // centres the seam identically in both directions and passes every
+    // assertion above, and only ever shows up as the offset sitting on the
+    // wrong side of the box.
+    const margins = await seamMargins(page, `#${id} [data-part="bar"]`);
+    const [inlineStart, inlineEnd] =
+      direction === "rtl" ? [margins.end, margins.start] : [margins.start, margins.end];
+    expect(inlineStart).toBe("-0.5px");
+    expect(inlineEnd).toBe("0px");
   });
 }
 
@@ -262,6 +282,22 @@ test("gives each bar the cursor for its own axis, nesting included", async ({ pa
   expect(await cursor('#outer > [data-part="bar"]')).toBe("row-resize");
 });
 
+test("says a frozen bar does not move, in either layout", async ({ page }) => {
+  const cursor = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate(el => getComputedStyle(el).cursor);
+
+  expect(await cursor('#frozen [data-part="bar"]')).toBe("default");
+  // The vertical one is the half that needs the guard rather than the rule:
+  // `[data-orientation="vertical"]` and `[data-disabled]` are both (0,3,0) on
+  // this element, so without `:not([data-disabled])` the winner is whichever
+  // rule sits lower in the stylesheet — and a frozen bar showing `row-resize`
+  // invites a drag that cannot happen.
+  expect(await cursor('#frozen-vertical [data-part="bar"]')).toBe("default");
+});
+
 test("keeps a bar being dragged in its active colour while hovered", async ({ page }) => {
   const seamColour = () =>
     page
@@ -275,8 +311,9 @@ test("keeps a bar being dragged in its active colour while hovered", async ({ pa
   expect(hovered).toBe(await token(page, "--ck-border-hover"));
 
   await page.mouse.down();
-  // Still under the pointer, so both rules match and both are (0,3,0) — which
-  // makes this purely a cascade question the guard has to settle.
+  // Still under the pointer, so an unguarded `:hover` would match too — and it
+  // and the `[data-active]` rule are both (0,3,1), an exact tie that only
+  // source order breaks. The guard is what settles it instead.
   const dragging = await seamColour();
   await page.mouse.up();
   expect(dragging).toBe(await token(page, "--ck-accent-solid"));
@@ -322,6 +359,18 @@ test("gives a vertical splitter a height in an auto-height parent", async ({ pag
   for (const panel of panels) expect(panel.h).toBeGreaterThan(50);
 });
 
+test("fills a parent that has its own height instead of keeping the default", async ({ page }) => {
+  const root = await rect(page, "#vertical-tall");
+  const panels = await rects(page, '#vertical-tall > [data-part="panel"]');
+  // The other half of the test above, and the ordinary way anyone uses this:
+  // 12rem has to be a FALLBACK. As a definite `block-size` it passes the
+  // auto-height assertion and renders 192px inside this 320px box, ignoring the
+  // parent entirely — which is why the two fixtures differ only in the parent.
+  expect(root.h).toBeCloseTo(320, 0);
+  expect(panels[0]!.h).toBeCloseTo(panels[1]!.h, 0);
+  expect(panels[0]!.h + panels[1]!.h).toBeCloseTo(312, 0);
+});
+
 test("leaves the outer boundary alone when the inner bar moves", async ({ page }) => {
   const before = await rects(page, '#outer > [data-part="panel"]');
   await drag(page, '#inner [data-part="bar"]', 80);
@@ -358,8 +407,16 @@ const outline = (page: Page) =>
 test("shows our focus ring when the bar is reached by keyboard", async ({ page }) => {
   await page.locator("#before-focus").click();
   await page.keyboard.press("Tab");
-  await expect(page.locator('#focus [data-part="bar"]')).toBeFocused();
+  const bar = page.locator('#focus [data-part="bar"]');
+  await expect(bar).toBeFocused();
   expect(await outline(page)).toBe("2px solid");
+
+  // The offset is the half that decides whether the ring is visible at all: an
+  // outline paints outside the border box, the bar is 8px wide, and the
+  // `overflow: hidden` panel on each side clips whatever lands on it. At the
+  // default offset of 0 the width and style above are both still "2px solid"
+  // and the user sees two clipped slivers.
+  expect(await bar.evaluate(el => getComputedStyle(el).outlineOffset)).toBe("-2px");
 });
 
 test("does not show it for a mouse press on the bar", async ({ page }) => {
