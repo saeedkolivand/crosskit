@@ -1,6 +1,6 @@
 {
   "name": "@crosskit-ui/styles",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "The CrossKit stylesheet. Precompiled CSS keyed to data-scope/data-part/data-state; consumers do not need Tailwind.",
   "type": "module",
   "sideEffects": [

@@ -1,6 +1,6 @@
 {
   "name": "@crosskit-ui/core",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Framework-agnostic core for CrossKit: design tokens types, icon data, theme controller and shared behaviour.",
   "type": "module",
   "sideEffects": false,

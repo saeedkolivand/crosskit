@@ -1,6 +1,6 @@
 {
   "name": "@crosskit-ui/zag-angular",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Angular signals binding for Zag.js state machines. Standalone and framework-complete: usable without the rest of CrossKit.",
   "repository": {
     "type": "git",

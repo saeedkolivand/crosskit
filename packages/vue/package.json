@@ -1,6 +1,6 @@
 {
   "name": "@crosskit-ui/vue",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "CrossKit components for Vue 3.",
   "//check:exports": "publint only, no attw. The emitted index.d.ts re-exports './button/Button.vue', which node16 resolution cannot resolve by design — every SFC-based Vue library has this shape. Consumers resolve it through the Vue plugin / vue-tsc, and 'bundler' resolution handles it correctly.",
   "type": "module",
