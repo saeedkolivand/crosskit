@@ -65,23 +65,23 @@ catalogs:
   # svelte-table entry — @tanstack/svelte-table@8 peers svelte ^3||^4 and does
   # NOT support Svelte 5, so the Svelte adapter binds table-core directly.
   table:
-    "@tanstack/table-core": "^8.21.3"
-    "@tanstack/react-table": "^8.21.3"
-    "@tanstack/vue-table": "^8.21.3"
-    "@tanstack/angular-table": "^8.21.4"
+    "@tanstack/table-core": "^9.1.2"
+    "@tanstack/react-table": "^9.1.2"
+    "@tanstack/vue-table": "^9.1.2"
+    "@tanstack/angular-table": "^9.1.2"
 
   angular:
-    "@angular/core": "^22.1.0"
-    "@angular/common": "^22.1.0"
-    "@angular/compiler": "^22.1.0"
-    "@angular/compiler-cli": "^22.1.0"
-    "@angular/platform-browser": "^22.1.0"
-    ng-packagr: "^22.1.0"
+    "@angular/core": "^22.1.1"
+    "@angular/common": "^22.1.1"
+    "@angular/compiler": "^22.1.1"
+    "@angular/compiler-cli": "^22.1.1"
+    "@angular/platform-browser": "^22.1.1"
+    ng-packagr: "^22.1.1"
 
   frameworks:
     react: "^19.2.8"
     react-dom: "^19.2.8"
-    vue: "^3.5.40"
+    vue: "^3.5.41"
     svelte: "^5.56.8"
     "@vitejs/plugin-vue": "^6.0.8"
     "@sveltejs/package": "^2.5.8"
