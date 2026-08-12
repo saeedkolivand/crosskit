@@ -15,8 +15,8 @@
     "svelte": "catalog:frameworks"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.2.0",
-    "svelte-check": "^4.7.5",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "svelte-check": "^4.4.4",
     "typescript": "catalog:",
     "vite": "catalog:frameworks"
   }
