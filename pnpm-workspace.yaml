@@ -27,7 +27,7 @@ catalog:
   vitest: "^4.1.10"
   "@vitest/coverage-v8": "^4.1.10"
   jsdom: "^30.0.1"
-  publint: "^0.3.22"
+  publint: "^0.3.23"
   "@arethetypeswrong/cli": "^0.18.5"
   tsdown: "^0.22.14"
   "@playwright/test": "^1.62.1"
@@ -85,7 +85,7 @@ catalogs:
     svelte: "^5.56.8"
     "@vitejs/plugin-vue": "^6.0.8"
     "@sveltejs/package": "^2.5.8"
-    vite: "^8.2.0"
+    vite: "^8.2.1"
     vue-tsc: "^3.3.9"
 
 minimumReleaseAgeExclude:
