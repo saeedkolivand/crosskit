@@ -71,12 +71,12 @@ catalogs:
     "@tanstack/angular-table": "^9.1.2"
 
   angular:
-    "@angular/core": "^22.1.0"
-    "@angular/common": "^22.1.0"
-    "@angular/compiler": "^22.1.0"
-    "@angular/compiler-cli": "^22.1.0"
-    "@angular/platform-browser": "^22.1.0"
-    ng-packagr: "^22.1.0"
+    "@angular/core": "^22.1.1"
+    "@angular/common": "^22.1.1"
+    "@angular/compiler": "^22.1.1"
+    "@angular/compiler-cli": "^22.1.1"
+    "@angular/platform-browser": "^22.1.1"
+    ng-packagr: "^22.1.1"
 
   frameworks:
     react: "^19.2.8"
