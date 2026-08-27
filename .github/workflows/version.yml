@@ -41,7 +41,7 @@ jobs:
       # workflows, so CI will not run on the Version Packages PR. For a PR that
       # contains only version bumps and changelog text that is fine — using a
       # PAT to work around it would trade a real credential for a cosmetic gain.
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           version: pnpm run version-packages
           title: "chore: version packages"
